@@ -48,8 +48,27 @@ def sdp_media(body):
     return None, None
 
 
+def g711_payload(section):
+    """First G.711 payload in the offer. Beward often lists PCMU before PCMA."""
+    for pt in section.get("payloads") or []:
+        enc = section["rtpmap"].get(pt, "").upper()
+        if enc.startswith("PCMU") or (not enc and pt == 0):
+            return 0
+        if enc.startswith("PCMA") or (not enc and pt == 8):
+            return 8
+    return 8
+
+
+def audio_payload(offer):
+    sections, _ = parse_offer(offer or "")
+    for section in sections:
+        if section["kind"] == "audio":
+            return g711_payload(section)
+    return 8
+
+
 def answer_sdp(user, local_ip, audio_port, video_port, offer):
-    """SDP answer for one offer: PCMA audio and H.264 when the offer has it."""
+    """SDP answer: the offer's G.711 codec, and H.264 when the offer has it."""
     sections, _ = parse_offer(offer or "")
     lines = [
         "v=0",
@@ -61,9 +80,12 @@ def answer_sdp(user, local_ip, audio_port, video_port, offer):
     answered_video = False
     for section in sections:
         if section["kind"] == "audio":
+            # This panel's speaker plays G.711A. Answering PCMU left it silent.
+            # If the panel nevertheless sends G.711U, the sender switches to match.
             lines += [
                 f"m=audio {audio_port} RTP/AVP 8",
                 "a=rtpmap:8 PCMA/8000",
+                "a=ptime:20",
                 "a=sendrecv",
             ]
         elif section["kind"] == "video" and section.get("h264") and not answered_video:
@@ -82,6 +104,7 @@ def answer_sdp(user, local_ip, audio_port, video_port, offer):
         lines += [
             f"m=audio {audio_port} RTP/AVP 8",
             "a=rtpmap:8 PCMA/8000",
+            "a=ptime:20",
             "a=sendrecv",
         ]
     return ("\r\n".join(lines) + "\r\n").encode()

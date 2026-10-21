@@ -11,9 +11,13 @@ import threading
 import time
 
 from phone import config
-from phone.codecs import alaw_to_linear, linear_to_alaw, rtp_packet, ulaw_to_linear
+from phone.codecs import alaw_to_linear, linear_to_alaw, linear_to_ulaw, rtp_packet, ulaw_to_linear
+from phone.echo import EchoCanceller
 from phone.h264 import avc_decoder_config, depacketize, sprop_nals
 from phone.sdp import answer_sdp, parse_offer, sdp_media
+
+# 120 ms. A microphone chunk can be a little late without a hole in the word.
+MIC_PREROLL_FRAMES = 6
 
 
 def md5(text):
@@ -94,6 +98,18 @@ def door_station_of(headers):
     return match.group(1) if match else ""
 
 
+def public_headers(headers):
+    """SIP headers safe to show. Auth and password fields stay off the page."""
+    hidden = {"authorization", "proxy-authorization", "www-authenticate", "proxy-authenticate"}
+    visible = []
+    for name, value in headers:
+        key = name.lower()
+        if key in hidden or any(word in key for word in ("password", "passwd", "secret")):
+            continue
+        visible.append({"name": name, "value": value})
+    return visible
+
+
 class Softphone:
     def __init__(self):
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -123,6 +139,16 @@ class Softphone:
         self.rtp_ssrc = secrets.randbits(32)
         self.next_rtp = 0
         self.mic = bytearray()
+        self.mic_tail = b""
+        self.mic_ready = False
+        self.last_pcm = b""
+        self.mic_holds = 0
+        self.audio_gaps = 0
+        self.audio_pt = 8
+        self.mic_heard = False
+        self.audio_started = False
+        self.rtp_error = False
+        self.echo = EchoCanceller()
         self.lock = threading.Lock()
         self.running = True
 
@@ -248,12 +274,12 @@ class Softphone:
                     continue
 
     def emit_audio(self, payload_type, payload):
-        samples = bytearray()
         decode = ulaw_to_linear if payload_type == 0 else alaw_to_linear
-        for byte in payload:
-            samples += struct.pack("<h", decode(byte))
-        if samples:
-            self.push_media(1, bytes(samples))
+        samples = [decode(byte) for byte in payload]
+        samples = self.echo.clean(samples)
+        packed = b"".join(struct.pack("<h", sample) for sample in samples)
+        if packed:
+            self.push_media(1, packed)
 
     def emit_video(self, marker):
         if not marker or not self.access:
@@ -310,9 +336,13 @@ class Softphone:
             if self.call and self.call["state"] == "talking":
                 self.call["rtp"] += 1
         if sock is self.rtp_sock:
-            if not self.rtp_target:
+            # The offer often says 0.0.0.0. The port the panel is sending
+            # from is the port that plays our voice.
+            if addr and addr[0] not in ("0.0.0.0", "127.0.0.1") and self.rtp_target != addr:
+                print(f"голос на панель: {addr[0]}:{addr[1]}", flush=True)
                 self.rtp_target = addr
             if payload_type in (0, 8):
+                self.audio_pt = payload_type
                 self.emit_audio(payload_type, payload)
         elif sock is self.video_sock:
             self.handle_h264(payload, marker)
@@ -384,6 +414,16 @@ class Softphone:
             self.pps = None
             self.config_sent = False
             self.mic.clear()
+            self.mic_tail = b""
+            self.mic_heard = False
+            self.audio_started = False
+            self.rtp_error = False
+            self.mic_ready = False
+            self.last_pcm = b""
+            self.mic_holds = 0
+            self.audio_gaps = 0
+            self.echo.reset()
+            self.audio_pt = 8
             sections, _ = parse_offer(call.get("offer") or "")
             for section in sections:
                 for nal in sprop_nals(section.get("fmtp_h264") or ""):
@@ -402,9 +442,11 @@ class Softphone:
             call["state"] = "talking"
             call["sdp"] = sdp
             media_ip, media_port = call["media"]
-            if media_ip and media_port:
+            if media_ip and media_ip != "0.0.0.0" and media_port:
                 self.rtp_target = (media_ip, media_port)
-            self.next_rtp = time.time()
+            else:
+                self.rtp_target = None
+            self.next_rtp = 0
             addr, headers, to_tag = call["addr"], call["headers"], call["to_tag"]
         self.answer_response(addr, headers, to_tag, sdp)
 
@@ -452,6 +494,12 @@ class Softphone:
             call = self.call
             self.call = None
             self.mic.clear()
+            self.mic_tail = b""
+            self.mic_ready = False
+            self.last_pcm = b""
+            self.echo.reset()
+            self.mic_holds = 0
+            self.audio_gaps = 0
             if call:
                 self.remember(call["apartment"], result)
         self.close_rtp()
@@ -499,29 +547,107 @@ class Softphone:
         if method == "OPTIONS":
             self.reply(addr, headers, "200 OK", secrets.token_hex(3), [f"Contact: {self.contact()}"])
 
-    def send_silence(self):
-        if not self.rtp_sock or not self.rtp_target:
+    def audio_clock(self):
+        """Send one 20 ms voice packet on its own clock.
+
+        Audio and video are separate RTP sessions. A late packet does not
+        make the next one go out immediately: the panel plays on arrival,
+        and a burst after a gap is what sounds torn.
+        """
+        while self.running:
+            with self.lock:
+                active = self.rtp_sock is not None and self.rtp_target is not None
+                due = self.next_rtp
+            if not active:
+                time.sleep(0.02)
+                continue
+            now = time.monotonic()
+            if due <= 0:
+                due = now
+            if due > now:
+                time.sleep(min(0.02, due - now))
+                continue
+            self._send_audio_frame()
+            self.next_rtp = time.monotonic() + 0.02
+
+    def push_mic(self, payload):
+        """Append little-endian PCM16. An odd trailing byte waits for the next chunk."""
+        if not payload:
             return
-        if time.time() < self.next_rtp:
-            return
-        self.next_rtp = time.time() + 0.02
-        self.rtp_seq = (self.rtp_seq + 1) & 0xFFFF
-        self.rtp_ts = (self.rtp_ts + 160) & 0xFFFFFFFF
-        packet = struct.pack("!BBHII", 0x80, 8, self.rtp_seq, self.rtp_ts, self.rtp_ssrc)
         with self.lock:
-            if len(self.mic) >= 320:
-                pcm = bytes(self.mic[:320])
-                del self.mic[:320]
+            payload = self.mic_tail + bytes(payload)
+            if len(payload) % 2:
+                self.mic_tail = payload[-1:]
+                payload = payload[:-1]
             else:
-                pcm = b""
+                self.mic_tail = b""
+            if payload:
+                self.mic.extend(payload)
+            # A full second used to sit here, so the panel spoke the oldest
+            # audio. Keep only the preroll: the speaker stays close to the mic.
+            keep = 320 * MIC_PREROLL_FRAMES
+            if len(self.mic) > keep:
+                del self.mic[:len(self.mic) - keep]
+
+    def _take_pcm(self):
+        """One 20 ms frame from the microphone, in the order it was captured.
+
+        Playback starts after the preroll. A missing frame is silence.
+        Repeating the previous frame is what made the panel sound torn.
+        """
+        frame = 320
+        with self.lock:
+            keep = frame * MIC_PREROLL_FRAMES
+            if len(self.mic) > keep:
+                del self.mic[:len(self.mic) - keep]
+            if not self.mic_ready:
+                if len(self.mic) < keep:
+                    return b""
+                self.mic_ready = True
+            if len(self.mic) >= frame:
+                pcm = bytes(self.mic[:frame])
+                del self.mic[:frame]
+                return pcm
+            self.mic_ready = False
+            self.audio_gaps += 1
+            if self.audio_gaps == 1:
+                print("голос прервался: микрофон не успел", flush=True)
+            return b""
+
+    def _send_audio_frame(self):
+        with self.lock:
+            sock = self.rtp_sock
+            target = self.rtp_target
+            if not sock or not target:
+                return False
+            self.rtp_seq = (self.rtp_seq + 1) & 0xFFFF
+            self.rtp_ts = (self.rtp_ts + 160) & 0xFFFFFFFF
+            pt = 0 if self.audio_pt == 0 else 8
+            marker = 0 if self.audio_started else 0x80
+            self.audio_started = True
+            header = struct.pack("!BBHII", 0x80, marker | pt, self.rtp_seq, self.rtp_ts, self.rtp_ssrc)
+        pcm = self._take_pcm()
+        encode = linear_to_ulaw if pt == 0 else linear_to_alaw
+        silence = 0xFF if pt == 0 else 0xD5
         if len(pcm) == 320:
-            packet += bytes(linear_to_alaw(sample) for sample in struct.unpack("<160h", pcm))
+            samples = struct.unpack("<160h", pcm)
+            peak = max(abs(sample) for sample in samples)
+            if peak > 400 and not self.mic_heard:
+                self.mic_heard = True
+                name = "G.711U" if pt == 0 else "G.711A"
+                print(f"микрофон со звуком, пик {peak}, {name}", flush=True)
+            payload = bytes(encode(sample) for sample in samples)
         else:
-            packet += bytes([0xD5]) * 160
+            samples = (0,) * 160
+            payload = bytes([silence]) * 160
+        self.echo.remember(samples)
         try:
-            self.rtp_sock.sendto(packet, self.rtp_target)
-        except OSError:
-            pass
+            sock.sendto(header + payload, target)
+        except OSError as exc:
+            if not self.rtp_error:
+                self.rtp_error = True
+                print(f"голос не отправился: {exc}", flush=True)
+        return bool(pcm)
 
     def drop_rtp_socket(self):
         with self.lock:
@@ -540,6 +666,7 @@ class Softphone:
 
     def loop(self):
         self.start_register()
+        threading.Thread(target=self.audio_clock, name="rtp-audio", daemon=True).start()
         while self.running:
             try:
                 self.drop_rtp_socket()
@@ -557,7 +684,6 @@ class Softphone:
                     readable, _, _ = select.select(sockets, [], [], 0.2)
                 except OSError:
                     continue
-                self.send_silence()
             except Exception as exc:
                 print("sip loop:", exc, flush=True)
                 time.sleep(0.2)
@@ -607,6 +733,7 @@ class Softphone:
                     "from": self.call["from"],
                     "to": self.call["to"],
                     "params": self.call["params"],
+                    "headers": public_headers(self.call.get("headers") or []),
                     "rtp": self.call["rtp"],
                 }
             alive = self.registered and time.time() < self.expires_at + 5

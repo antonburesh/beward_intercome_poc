@@ -27,11 +27,14 @@ from http.server import ThreadingHTTPServer
 
 from phone import config, httpapi
 from phone.sip import Softphone
+from phone.webrtc_mic import WebRtcMic
 
 
 def main():
     config.load_settings()
     httpapi.PHONE = Softphone()
+    httpapi.WEBRTC = WebRtcMic(httpapi.PHONE)
+    httpapi.WEBRTC.start()
     thread = threading.Thread(target=httpapi.PHONE.loop, daemon=True)
     thread.start()
     server = ThreadingHTTPServer((config.HTTP_HOST, config.HTTP_PORT), httpapi.Handler)

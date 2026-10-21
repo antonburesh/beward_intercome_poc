@@ -37,6 +37,26 @@ def linear_to_alaw(sample):
     return (value ^ mask) & 0xFF
 
 
+def linear_to_ulaw(sample):
+    """G.711 μ-law. Silence 0 encodes to 255, matching audioop.lin2ulaw."""
+    if sample > 32635:
+        sample = 32635
+    elif sample < -32635:
+        sample = -32635
+    sign = 0
+    if sample < 0:
+        sign = 0x80
+        sample = -sample
+    sample += 0x84
+    exponent = 7
+    mask = 0x4000
+    while exponent > 0 and not (sample & mask):
+        exponent -= 1
+        mask >>= 1
+    mantissa = (sample >> (exponent + 3)) & 0x0F
+    return (~(sign | (exponent << 4) | mantissa)) & 0xFF
+
+
 def ulaw_to_linear(value):
     value = (~value) & 0xFF
     sign = value & 0x80
