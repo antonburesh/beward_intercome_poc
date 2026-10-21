@@ -314,7 +314,7 @@ function render(data) {
         <p class="sub">Вызов придёт на этот экран.</p>
       </header>
       ${settingsCards(data)}`;
-    bindSettings();
+    tickGuests();
     return;
   }
   if (call.state === "ringing" && call.id !== lastRing) {
@@ -355,7 +355,7 @@ function render(data) {
   }
   document.getElementById("reject").onclick = () => post(talking ? "/api/hangup" : "/api/reject");
   if (call.panel_known) document.getElementById("open").onclick = openDoor;
-  bindSettings();
+  tickGuests();
 }
 
 function faceLabel(item) {
@@ -368,6 +368,11 @@ function settingsCards(data) {
   return `<div class="board">${faceCard(data.faces, data.panel_count)}${guestBlock(data.guests, data.panels)}${keyCard(data.keys)}</div>`;
 }
 
+function orEmpty(html, empty, action, label) {
+  if (!html) return `<p class="empty">${empty}</p>`;
+  return `${html}<button class="danger" type="button" data-action="${action}">${label}</button>`;
+}
+
 function faceCard(faces, panelCount) {
   const items = (faces || []).map(item => `
     <div class="person">
@@ -378,9 +383,12 @@ function faceCard(faces, panelCount) {
       </div>
       <button class="reject" type="button" data-action="face" data-id="${esc(item.id)}" data-panel="${esc(item.panel)}" data-label="${esc(faceLabel(item))}">Удалить фото</button>
     </div>`).join("");
-  const clear = items
-    ? `<button class="danger" id="clear-faces" type="button">Удалить все фотографии</button>`
-    : `<p class="empty">Фотографий пока нет. Добавьте снимок жителя — дверь откроется, когда панель его узнает.</p>`;
+  const body = orEmpty(
+    items,
+    "Фотографий пока нет. Добавьте снимок жителя — дверь откроется, когда панель его узнает.",
+    "clear-faces",
+    "Удалить все фотографии"
+  );
   return `
     <form class="card" id="face-form">
       <h3>Вход по лицу</h3>
@@ -391,8 +399,7 @@ function faceCard(faces, panelCount) {
       <input id="face-file" name="photo" type="file" accept="image/*">
       <button class="open" type="submit">Добавить фотографию</button>
       <p class="note" id="face-msg"></p>
-      ${items}
-      ${clear}
+      ${body}
     </form>`;
 }
 
@@ -411,9 +418,7 @@ function guestBlock(guests, panels) {
       <b class="code">${esc(item.code)}</b>
       <button class="reject" type="button" data-action="revoke" data-apt="${esc(item.apartment)}">Удалить код</button>
     </div>`).join("");
-  const clear = items
-    ? `<button class="danger" id="clear-guests" type="button">Удалить все коды</button>`
-    : `<p class="empty">Сейчас нет действующих кодов.</p>`;
+  const body = orEmpty(items, "Сейчас нет действующих кодов.", "clear-guests", "Удалить все коды");
   return `
     <form class="card" id="guest-form">
       <h3>Временный код</h3>
@@ -433,8 +438,7 @@ function guestBlock(guests, panels) {
       </select>
       <button class="open" type="submit">Дать код гостю</button>
       <p class="note" id="guest-msg"></p>
-      ${items}
-      ${clear}
+      ${body}
     </form>`;
 }
 
@@ -447,9 +451,7 @@ function keyCard(keys) {
       </div>
       <button class="reject" type="button" data-action="key" data-key="${esc(item.key)}" data-apt="${esc(item.apartment)}">Удалить</button>
     </div>`).join("");
-  const clear = items
-    ? `<button class="danger" id="clear-keys" type="button">Удалить все ключи</button>`
-    : `<p class="empty">Ключей с этого экрана пока нет.</p>`;
+  const body = orEmpty(items, "Ключей с этого экрана пока нет.", "clear-keys", "Удалить все ключи");
   return `
     <form class="card" id="key-form">
       <h3>Ключ</h3>
@@ -460,174 +462,93 @@ function keyCard(keys) {
       <input id="key-number" maxlength="20" autocomplete="off" spellcheck="false" placeholder="Номер с ключа">
       <button class="open" type="submit">Добавить ключ</button>
       <p class="note" id="key-msg">${esc(keyNote)}</p>
-      ${items}
-      ${clear}
+      ${body}
     </form>`;
 }
 
-function bindSettings() {
-  const face = document.getElementById("face-form");
-  if (face) face.onsubmit = (event) => { event.preventDefault(); uploadFace(); };
-  const guest = document.getElementById("guest-form");
-  if (guest) guest.onsubmit = issueGuest;
-  document.querySelectorAll("[data-action='revoke']").forEach(button => {
-    button.onclick = () => revokeGuest(button.getAttribute("data-apt"));
-  });
-  document.querySelectorAll("[data-action='face']").forEach(button => {
-    button.onclick = () => deleteFace(button.getAttribute("data-panel"), button.getAttribute("data-id"), button.getAttribute("data-label"));
-  });
-  const clearFaces = document.getElementById("clear-faces");
-  if (clearFaces) clearFaces.onclick = deleteAllFaces;
-  const clearGuests = document.getElementById("clear-guests");
-  if (clearGuests) clearGuests.onclick = deleteAllGuests;
-  const keyForm = document.getElementById("key-form");
-  if (keyForm) keyForm.onsubmit = addKey;
-  document.querySelectorAll("[data-action='key']").forEach(button => {
-    button.onclick = () => deleteKey(button.getAttribute("data-key"), button.getAttribute("data-apt"));
-  });
-  const clearKeys = document.getElementById("clear-keys");
-  if (clearKeys) clearKeys.onclick = deleteAllKeys;
-  tickGuests();
+stage.addEventListener("click", (event) => {
+  const button = event.target.closest("[data-action]");
+  if (!button) return;
+  const action = button.dataset.action;
+  if (action === "revoke") revokeGuest(button.dataset.apt);
+  else if (action === "face") deleteFace(button.dataset.panel, button.dataset.id, button.dataset.label);
+  else if (action === "key") deleteKey(button.dataset.key, button.dataset.apt);
+  else if (action === "clear-faces") deleteAllFaces();
+  else if (action === "clear-guests") deleteAllGuests();
+  else if (action === "clear-keys") deleteAllKeys();
+});
+stage.addEventListener("submit", (event) => {
+  const id = event.target.id;
+  if (id === "face-form") { event.preventDefault(); uploadFace(); }
+  else if (id === "guest-form") issueGuest(event);
+  else if (id === "key-form") addKey(event);
+});
+
+async function command(url, body, kind, pending, fallback) {
+  const note = document.getElementById(kind + "-msg");
+  if (kind === "key") keyNote = pending;
+  else if (note) note.textContent = pending;
+  let text = fallback;
+  try {
+    const options = { method: "POST" };
+    if (body !== undefined) {
+      options.headers = { "Content-Type": "application/json" };
+      options.body = JSON.stringify(body);
+    }
+    const data = await (await fetch(url, options)).json();
+    text = data[kind] || fallback;
+  } catch (e) {}
+  if (kind === "key") keyNote = text;
+  else if (note) note.textContent = text;
+  lastView = "";
+  refresh();
 }
 
 async function addKey(event) {
   event.preventDefault();
   const apartment = (document.getElementById("key-apt").value || "").trim();
   const key = (document.getElementById("key-number").value || "").trim();
-  keyNote = "записываю ключ…";
-  try {
-    const res = await fetch("/api/key", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ apartment, key })
-    });
-    const data = await res.json();
-    keyNote = data.key || "не удалось записать ключ";
-  } catch (e) {
-    keyNote = "не удалось записать ключ";
-  }
-  lastView = "";
-  refresh();
+  await command("/api/key", { apartment, key }, "key", "записываю ключ…", "не удалось записать ключ");
 }
 
 async function deleteKey(key, apartment) {
   if (!confirm("Удалить ключ квартиры " + (apartment || "") + "?")) return;
-  keyNote = "удаляю ключ…";
-  try {
-    const res = await fetch("/api/key", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ key, remove: true })
-    });
-    const data = await res.json();
-    keyNote = data.key || "не удалось удалить ключ";
-  } catch (e) {
-    keyNote = "не удалось удалить ключ";
-  }
-  lastView = "";
-  refresh();
+  await command("/api/key", { key, remove: true }, "key", "удаляю ключ…", "не удалось удалить ключ");
 }
 
 async function deleteAllKeys() {
   if (!confirm("Удалить все ключи, добавленные с этого экрана? На домофонах их тоже больше не будет.")) return;
-  keyNote = "удаляю ключи…";
-  try {
-    const res = await fetch("/api/key/clear", { method: "POST" });
-    const data = await res.json();
-    keyNote = data.key || "не удалось удалить ключи";
-  } catch (e) {
-    keyNote = "не удалось удалить ключи";
-  }
-  lastView = "";
-  refresh();
+  await command("/api/key/clear", undefined, "key", "удаляю ключи…", "не удалось удалить ключи");
 }
 
 async function issueGuest(event) {
   event.preventDefault();
-  const note = document.getElementById("guest-msg");
   const apartment = (document.getElementById("guest-apt").value || "").trim();
   const minutes = Number(document.getElementById("guest-min").value);
   const where = (document.getElementById("guest-panel") || {}).value || "all";
   const payload = { apartment, minutes };
   if (where === "all") payload.all = true;
   else payload.panel = where;
-  if (note) note.textContent = "записываю код…";
-  try {
-    const res = await fetch("/api/guest", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload)
-    });
-    const data = await res.json();
-    if (note) note.textContent = data.guest || "не удалось записать код";
-  } catch (e) {
-    if (note) note.textContent = "не удалось записать код";
-  }
-  lastView = "";
-  refresh();
+  await command("/api/guest", payload, "guest", "записываю код…", "не удалось записать код");
 }
 
 async function revokeGuest(apartment) {
-  await fetch("/api/guest", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ apartment, remove: true })
-  });
-  lastView = "";
-  refresh();
+  await command("/api/guest", { apartment, remove: true }, "guest", "", "");
 }
 
 async function deleteAllGuests() {
   if (!confirm("Удалить все временные коды? Гости больше не смогут войти по ним.")) return;
-  const note = document.getElementById("guest-msg");
-  if (note) note.textContent = "снимаю коды…";
-  try {
-    const res = await fetch("/api/guest/clear", { method: "POST" });
-    const data = await res.json();
-    if (note) note.textContent = data.guest || "не удалось снять коды";
-  } catch (e) {
-    if (note) note.textContent = "не удалось снять коды";
-  }
-  lastView = "";
-  refresh();
+  await command("/api/guest/clear", undefined, "guest", "снимаю коды…", "не удалось снять коды");
 }
 
 async function deleteFace(panel, id, label) {
   if (!confirm("Удалить фотографию: " + (label || "эта запись") + "?")) return;
-  const note = document.getElementById("face-msg");
-  if (note) note.textContent = "удаляю фотографию…";
-  try {
-    const res = await fetch("/api/face/delete", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ panel, id })
-    });
-    const data = await res.json();
-    if (note) note.textContent = data.face || "не удалось удалить фото";
-  } catch (e) {
-    if (note) note.textContent = "не удалось удалить фото";
-  }
-  lastView = "";
-  refresh();
+  await command("/api/face/delete", { panel, id }, "face", "удаляю фотографию…", "не удалось удалить фото");
 }
 
 async function deleteAllFaces() {
   if (!confirm("Удалить все фотографии на всех домофонах? Вход по лицу перестанет работать, пока фото не добавят снова.")) return;
-  const note = document.getElementById("face-msg");
-  if (note) note.textContent = "удаляю фотографии…";
-  try {
-    const res = await fetch("/api/face/delete", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ all: true })
-    });
-    const data = await res.json();
-    if (note) note.textContent = data.face || "не удалось удалить фото";
-  } catch (e) {
-    if (note) note.textContent = "не удалось удалить фото";
-  }
-  lastView = "";
-  refresh();
+  await command("/api/face/delete", { all: true }, "face", "удаляю фотографии…", "не удалось удалить фото");
 }
 
 function tickGuests() {
@@ -856,13 +777,11 @@ async function readMedia() {
       if (kind === 1) playPcm(payload);
       else if (kind === 3 && payload.length > 1) {
         const n = payload[0];
-        const codec = new TextDecoder().decode(payload.slice(1, 1 + n));
-        configureVideo(codec, payload.slice(1 + n));
+        configureVideo(new TextDecoder().decode(payload.slice(1, 1 + n)), payload.slice(1 + n));
       } else if (kind === 2 && payload.length > 0) {
         decodeVideo(payload[0] === 1, payload.slice(1));
       }
     }
-    if (chunk.done) break;
   }
   }
 }

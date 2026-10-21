@@ -11,6 +11,8 @@ import threading
 import time
 from pathlib import Path
 
+from phone.persist import read_dict, write_dict
+
 
 def _code(taken):
     for _ in range(20):
@@ -18,6 +20,17 @@ def _code(taken):
         if value not in taken:
             return value
     return ""
+
+
+def _issued(scope, chosen, waiting):
+    if waiting:
+        where = "ждёт: " + ", ".join(_name(panel) for panel in waiting)
+        return f"код записан, {where}", where
+    if scope == "one":
+        where = _name(chosen[0])
+        return f"код записан на домофон {where}", where
+    where = "все панели" if len(chosen) > 1 else "панель"
+    return f"код записан на {where}", where
 
 
 def _panels(panels):
@@ -34,9 +47,7 @@ def _key(panel):
 
 def _choose(panels, target):
     """Panels that should receive this code. An unknown ip is refused."""
-    if target in (None, "", "all"):
-        return panels, "all", ""
-    wanted = str(target).strip()
+    wanted = str(target or "all").strip() or "all"
     if wanted == "all":
         return panels, "all", ""
     match = [panel for panel in panels if str(panel.get("ip") or "") == wanted]
@@ -55,18 +66,14 @@ class GuestCodes:
         self._load()
 
     def _load(self):
-        try:
-            raw = json.loads(self.path.read_text())
-        except (OSError, json.JSONDecodeError):
-            raw = {}
-        if isinstance(raw, dict):
-            self.grants = {str(key): value for key, value in raw.items() if isinstance(value, dict)}
+        self.grants = {
+            str(key): value
+            for key, value in read_dict(self.path).items()
+            if isinstance(value, dict)
+        }
 
     def _save(self):
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        temporary = self.path.with_suffix(".json.tmp")
-        temporary.write_text(json.dumps(self.grants))
-        temporary.replace(self.path)
+        write_dict(self.path, self.grants)
 
     def public(self):
         now = time.time()
@@ -156,18 +163,7 @@ class GuestCodes:
                 return False, "для этой квартиры код уже есть"
             self.grants[number] = grant
             self._save()
-        if waiting:
-            where = "ждёт: " + ", ".join(_name(panel) for panel in waiting)
-            text = f"код записан, {where}"
-        elif scope == "one":
-            where = _name(chosen[0])
-            text = f"код записан на домофон {where}"
-        elif len(chosen) > 1:
-            where = "все панели"
-            text = f"код записан на {where}"
-        else:
-            where = "панель"
-            text = f"код записан на {where}"
+        text, where = _issued(scope, chosen, waiting)
         print(f"гость: квартира {number} на {span} мин, {where}", flush=True)
         return True, text
 

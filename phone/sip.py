@@ -141,8 +141,6 @@ class Softphone:
         self.mic = bytearray()
         self.mic_tail = b""
         self.mic_ready = False
-        self.last_pcm = b""
-        self.mic_holds = 0
         self.audio_gaps = 0
         self.audio_pt = 8
         self.mic_heard = False
@@ -183,24 +181,17 @@ class Softphone:
 
     def reply(self, addr, headers, status, to_tag, extra, body=b""):
         lines = [f"SIP/2.0 {status}"]
-        copied = {"via": False, "from": False, "to": False, "call-id": False, "cseq": False}
+        seen = set()
         for name, value in headers:
             key = name.lower()
-            if key == "via":
-                lines.append(f"Via: {value}")
-                copied["via"] = True
-            elif key == "from":
-                lines.append(f"From: {value}")
-                copied["from"] = True
-            elif key == "to":
-                if to_tag and "tag=" not in value.lower():
-                    value = f"{value};tag={to_tag}"
-                lines.append(f"To: {value}")
-                copied["to"] = True
-            elif key in ("call-id", "cseq"):
-                lines.append(f"{name}: {value}")
-                copied[key] = True
-        if not all(copied.values()):
+            if key not in ("via", "from", "to", "call-id", "cseq"):
+                continue
+            if key == "to" and to_tag and "tag=" not in value.lower():
+                value = f"{value};tag={to_tag}"
+            label = name if key in ("call-id", "cseq") else key.capitalize()
+            lines.append(f"{label}: {value}")
+            seen.add(key)
+        if seen != {"via", "from", "to", "call-id", "cseq"}:
             return
         lines.extend(extra)
         lines.append(f"Content-Length: {len(body)}")
@@ -419,8 +410,6 @@ class Softphone:
             self.audio_started = False
             self.rtp_error = False
             self.mic_ready = False
-            self.last_pcm = b""
-            self.mic_holds = 0
             self.audio_gaps = 0
             self.echo.reset()
             self.audio_pt = 8
@@ -496,9 +485,7 @@ class Softphone:
             self.mic.clear()
             self.mic_tail = b""
             self.mic_ready = False
-            self.last_pcm = b""
             self.echo.reset()
-            self.mic_holds = 0
             self.audio_gaps = 0
             if call:
                 self.remember(call["apartment"], result)

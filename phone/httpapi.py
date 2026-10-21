@@ -15,7 +15,6 @@ WEBRTC = None
 GUESTS = None
 KEYS = None
 _FACE_CACHE = {"at": 0.0, "rows": []}
-_KEY_CACHE = {"at": 0.0, "rows": []}
 
 
 def multipart_parts(content_type, body):
@@ -63,21 +62,6 @@ def drop_face_cache():
     _FACE_CACHE["at"] = 0.0
 
 
-def key_rows():
-    """Keys entered on this phone. The panel is asked only when one is saved or removed."""
-    now = time.time()
-    if now - _KEY_CACHE["at"] < 3:
-        return _KEY_CACHE["rows"]
-    rows = KEYS.public() if KEYS else []
-    _KEY_CACHE["at"] = time.time()
-    _KEY_CACHE["rows"] = rows
-    return rows
-
-
-def drop_key_cache():
-    _KEY_CACHE["at"] = 0.0
-
-
 def panel_choices():
     """Names and addresses for the page. Login fields stay on the server."""
     return [
@@ -89,12 +73,23 @@ def panel_choices():
 
 def guest_target(payload):
     """A panel ip, or all panels when the request asks for every door."""
-    if isinstance(payload, dict) and payload.get("all") is True:
+    if not isinstance(payload, dict) or payload.get("all") is True:
         return "all"
-    panel = payload.get("panel") if isinstance(payload, dict) else None
+    panel = payload.get("panel")
     if panel in (None, "", "all"):
         return "all"
     return str(panel).strip()
+
+
+def read_json(handler, limit):
+    length = int(handler.headers.get("Content-Length", "0") or "0")
+    if length <= 0 or length > limit:
+        return None
+    try:
+        value = json.loads(handler.rfile.read(length).decode("utf-8"))
+    except (UnicodeError, json.JSONDecodeError):
+        return None
+    return value if isinstance(value, dict) else None
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -109,6 +104,19 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
+
+    def send_bytes(self, status, content_type, body, cache="no-store"):
+        self.send_response(status)
+        if content_type:
+            self.send_header("Content-Type", content_type)
+        self.send_header("Cache-Control", cache)
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        if body:
+            self.wfile.write(body)
+
+    def fail(self, field, message):
+        self.send_json({"ok": False, field: message})
 
     def do_GET(self):
         if self.path.startswith("/media"):
@@ -132,54 +140,32 @@ class Handler(BaseHTTPRequestHandler):
             panel = next((item for item in config.PANELS if item.get("ip") == panel_ip), None)
             image = fetch_face(panel, face_id) if panel else None
             if not image:
-                self.send_response(404)
-                self.send_header("Content-Length", "0")
-                self.end_headers()
+                self.send_bytes(404, "", b"")
                 return
-            self.send_response(200)
-            self.send_header("Content-Type", "image/jpeg")
-            self.send_header("Cache-Control", "private, no-store")
-            self.send_header("Content-Length", str(len(image)))
-            self.end_headers()
-            self.wfile.write(image)
+            self.send_bytes(200, "image/jpeg", image, "private, no-store")
             return
         if self.path.startswith("/snapshot"):
             panel = PHONE.active_panel()
+            image = fetch_snapshot(panel) if panel else None
             if not panel:
-                self.send_response(404)
-                self.send_header("Content-Length", "0")
-                self.end_headers()
+                self.send_bytes(404, "", b"")
                 return
-            image = fetch_snapshot(panel)
             if not image:
-                self.send_response(502)
-                self.send_header("Content-Length", "0")
-                self.end_headers()
+                self.send_bytes(502, "", b"")
                 return
-            self.send_response(200)
-            self.send_header("Content-Type", "image/jpeg")
-            self.send_header("Cache-Control", "no-store")
-            self.send_header("Content-Length", str(len(image)))
-            self.end_headers()
-            self.wfile.write(image)
+            self.send_bytes(200, "image/jpeg", image)
             return
         if self.path.startswith("/api/state"):
             data = PHONE.snapshot()
             data["guests"] = GUESTS.public() if GUESTS else []
             data["faces"] = face_rows()
-            data["keys"] = key_rows()
+            data["keys"] = KEYS.public() if KEYS else []
             data["panel_count"] = len(config.PANELS)
             data["panels"] = panel_choices()
             self.send_json(data)
             return
         if self.path in ("/", "/index.html"):
-            body = PAGE.encode()
-            self.send_response(200)
-            self.send_header("Content-Type", "text/html; charset=utf-8")
-            self.send_header("Cache-Control", "no-store")
-            self.send_header("Content-Length", str(len(body)))
-            self.end_headers()
-            self.wfile.write(body)
+            self.send_bytes(200, "text/html; charset=utf-8", PAGE.encode())
             return
         self.send_response(404)
         self.end_headers()
@@ -199,52 +185,33 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_response(500)
                 self.end_headers()
                 return
-            body = answer.encode()
-            self.send_response(200)
-            self.send_header("Content-Type", "application/sdp")
-            self.send_header("Cache-Control", "no-store")
-            self.send_header("Content-Length", str(len(body)))
-            self.end_headers()
-            self.wfile.write(body)
+            self.send_bytes(200, "application/sdp", answer.encode())
             return
         if self.path == "/api/guest":
-            length = int(self.headers.get("Content-Length", "0") or "0")
-            if GUESTS is None or length <= 0 or length > 4000:
-                self.send_json({"ok": False, "guest": "не удалось записать код"})
-                return
-            try:
-                payload = json.loads(self.rfile.read(length).decode("utf-8"))
-            except (UnicodeError, json.JSONDecodeError):
-                self.send_json({"ok": False, "guest": "не удалось записать код"})
+            payload = read_json(self, 4000)
+            if GUESTS is None or payload is None:
+                self.fail("guest", "не удалось записать код")
                 return
             panels = list(config.PANELS)
             if payload.get("remove"):
                 ok, message = GUESTS.revoke(panels, payload.get("apartment"))
             else:
                 ok, message = GUESTS.issue(
-                    panels,
-                    payload.get("apartment"),
-                    payload.get("minutes"),
-                    guest_target(payload),
+                    panels, payload.get("apartment"), payload.get("minutes"), guest_target(payload)
                 )
             self.send_json({"ok": ok, "guest": message})
             return
         if self.path == "/api/guest/clear":
             if GUESTS is None:
-                self.send_json({"ok": False, "guest": "не удалось снять коды"})
+                self.fail("guest", "не удалось снять коды")
                 return
             ok, message = GUESTS.revoke_all(list(config.PANELS))
             self.send_json({"ok": ok, "guest": message})
             return
         if self.path == "/api/face/delete":
-            length = int(self.headers.get("Content-Length", "0") or "0")
-            if length <= 0 or length > 4000:
-                self.send_json({"ok": False, "face": "не удалось удалить фото"})
-                return
-            try:
-                payload = json.loads(self.rfile.read(length).decode("utf-8"))
-            except (UnicodeError, json.JSONDecodeError):
-                self.send_json({"ok": False, "face": "не удалось удалить фото"})
+            payload = read_json(self, 4000)
+            if payload is None:
+                self.fail("face", "не удалось удалить фото")
                 return
             panels = list(config.PANELS)
             if payload.get("all"):
@@ -256,28 +223,21 @@ class Handler(BaseHTTPRequestHandler):
             return
         if self.path == "/api/key/clear":
             if KEYS is None:
-                self.send_json({"ok": False, "key": "не удалось удалить ключи"})
+                self.fail("key", "не удалось удалить ключи")
                 return
             ok, message = KEYS.remove_all(list(config.PANELS))
-            drop_key_cache()
             self.send_json({"ok": ok, "key": message})
             return
         if self.path == "/api/key":
-            length = int(self.headers.get("Content-Length", "0") or "0")
-            if KEYS is None or length <= 0 or length > 4000:
-                self.send_json({"ok": False, "key": "не удалось записать ключ"})
-                return
-            try:
-                payload = json.loads(self.rfile.read(length).decode("utf-8"))
-            except (UnicodeError, json.JSONDecodeError):
-                self.send_json({"ok": False, "key": "не удалось записать ключ"})
+            payload = read_json(self, 4000)
+            if KEYS is None or payload is None:
+                self.fail("key", "не удалось записать ключ")
                 return
             panels = list(config.PANELS)
             if payload.get("remove"):
                 ok, message = KEYS.remove(panels, payload.get("key"))
             else:
                 ok, message = KEYS.add(panels, payload.get("apartment"), payload.get("key"))
-            drop_key_cache()
             self.send_json({"ok": ok, "key": message})
             return
         if self.path == "/api/face":

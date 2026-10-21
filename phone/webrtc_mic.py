@@ -40,12 +40,6 @@ class WebRtcMic:
         future = asyncio.run_coroutine_threadsafe(self.accept_offer(sdp), self.loop)
         return future.result(timeout=timeout)
 
-    def close_sync(self):
-        if self.loop is None:
-            return
-        future = asyncio.run_coroutine_threadsafe(self.close(), self.loop)
-        future.result(timeout=2)
-
     async def close(self):
         pc = self.pc
         self.pc = None

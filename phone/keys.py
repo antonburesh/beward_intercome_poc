@@ -5,11 +5,11 @@ show and delete those keys. A key that was already on the panel is not copied
 into this list.
 """
 
-import json
 import threading
 from pathlib import Path
 
 from phone.door import add_keys, delete_key, normalize_key
+from phone.persist import read_dict, write_dict
 
 
 class KeyBook:
@@ -22,13 +22,7 @@ class KeyBook:
         self._load()
 
     def _load(self):
-        try:
-            raw = json.loads(self.path.read_text())
-        except (OSError, json.JSONDecodeError):
-            raw = {}
-        if not isinstance(raw, dict):
-            return
-        for key, value in raw.items():
+        for key, value in read_dict(self.path).items():
             number = normalize_key(key)
             if not number or not isinstance(value, dict):
                 continue
@@ -37,10 +31,7 @@ class KeyBook:
                 self.items[number] = {"apartment": apartment}
 
     def _save(self):
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        temporary = self.path.with_suffix(".json.tmp")
-        temporary.write_text(json.dumps(self.items))
-        temporary.replace(self.path)
+        write_dict(self.path, self.items)
 
     def public(self):
         with self.lock:

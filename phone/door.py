@@ -61,72 +61,22 @@ def http_digest(method, url, user, password, challenge):
 def fetch_snapshot(panel):
     if not panel:
         return None
-    url = http_url(panel['ip'], panel['snapshot_path'])
-    user = panel['username']
-    password = panel['password']
-
-    def read(response):
-        data = response.read()
-        if data.startswith(b"\xff\xd8"):
-            return data
-        return None
-
-    request = urllib.request.Request(url, method="GET")
-    try:
-        with urllib.request.urlopen(request, timeout=4) as response:
-            return read(response)
-    except urllib.error.HTTPError as exc:
-        if exc.code != 401:
-            return None
-        challenge = exc.headers.get("WWW-Authenticate", "")
-        if not challenge:
-            return None
-        authed = urllib.request.Request(
-            url,
-            method="GET",
-            headers={"Authorization": http_digest("GET", url, user, password, challenge)},
-        )
-        try:
-            with urllib.request.urlopen(authed, timeout=4) as response:
-                return read(response)
-        except (urllib.error.HTTPError, OSError):
-            return None
-    except OSError:
-        return None
+    status, data = panel_exchange(panel, "GET", panel["snapshot_path"], timeout=4)
+    if status == 200 and data.startswith(b"\xff\xd8"):
+        return data
+    return None
 
 
 def open_door(panel):
     if not panel:
         return False, "панель неизвестна"
-    url = http_url(panel['ip'], panel['door_path'])
-    user = panel['username']
-    password = panel['password']
-    request = urllib.request.Request(url, method="GET")
-    try:
-        with urllib.request.urlopen(request, timeout=4) as response:
-            status = response.status
-    except urllib.error.HTTPError as exc:
-        if exc.code != 401:
-            return False, "панель не открыла дверь"
-        challenge = exc.headers.get("WWW-Authenticate", "")
-        if not challenge:
-            return False, "панель не открыла дверь"
-        authed = urllib.request.Request(
-            url,
-            method="GET",
-            headers={"Authorization": http_digest("GET", url, user, password, challenge)},
-        )
-        try:
-            with urllib.request.urlopen(authed, timeout=4) as response:
-                status = response.status
-        except urllib.error.HTTPError:
-            return False, "панель не приняла команду"
-        except OSError:
-            return False, "панель не ответила"
-    except OSError:
-        return False, "панель не ответила"
+    status, _raw = panel_exchange(panel, "GET", panel["door_path"], timeout=4)
     if status in (200, 204, 302):
         return True, "дверь открыта"
+    if status == 0:
+        return False, "панель не ответила"
+    if status in (401, 403):
+        return False, "панель не приняла команду"
     return False, "панель не открыла дверь"
 
 
@@ -389,11 +339,7 @@ def delete_all_faces(panels, exchange=None):
         if panel is None or not remove_face(panel, row["id"], exchange):
             failed.append(row.get("panel_name") or "панель")
     if failed:
-        names = []
-        for name in failed:
-            if name not in names:
-                names.append(name)
-        return False, "не удалилось: " + ", ".join(names)
+        return False, "не удалилось: " + ", ".join(dict.fromkeys(failed))
     return True, "все фотографии удалены"
 
 
@@ -520,6 +466,12 @@ def _mifare_query(settings, rows, seldir):
     return urlencode(fields)
 
 
+def _next_key_page(panel, exchange, settings, rows):
+    before = [row.get("uid") for row in rows]
+    settings, rows = _save_key_page(panel, exchange, settings, rows, "1")
+    return settings, rows, [row.get("uid") for row in rows] == before
+
+
 def _read_key_page(panel, exchange):
     status, raw = exchange(panel, "GET", "/mifare.asp", timeout=8)
     if status != 200 or not raw:
@@ -557,10 +509,9 @@ def _add_key_to_panel(panel, apartment, key, exchange):
             return False, "такой ключ уже есть"
         if len(rows) < KEY_PAGE:
             break
-        before = [row.get("uid") for row in rows]
-        settings, rows = _save_key_page(panel, exchange, settings, rows, "1")
+        settings, rows, stuck = _next_key_page(panel, exchange, settings, rows)
         guard += 1
-        if guard > 40 or [row.get("uid") for row in rows] == before:
+        if guard > 40 or stuck:
             return False, "панель не сохранила ключ"
     rows = list(rows)
     rows.append({"uid": key, "type": "1", "apt": str(apartment)})
@@ -582,21 +533,19 @@ def _remove_key_from_panel(panel, key, exchange):
                 return False
             if not full:
                 return True
-            before = [row.get("uid") for row in rows]
-            settings, rows = _save_key_page(panel, exchange, settings, rows, "1")
-            if [row.get("uid") for row in rows] == before:
+            settings, rows, stuck = _next_key_page(panel, exchange, settings, rows)
+            if stuck:
                 return True
         elif len(rows) < KEY_PAGE:
             return True
         else:
-            before = [row.get("uid") for row in rows]
-            settings, rows = _save_key_page(panel, exchange, settings, rows, "1")
-            if [row.get("uid") for row in rows] == before:
+            settings, rows, stuck = _next_key_page(panel, exchange, settings, rows)
+            if stuck:
                 return True
         guard += 1
         if guard > 40:
             return True
-    return True
+    return False
 
 
 def _panel_name(panel):
