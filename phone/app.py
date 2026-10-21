@@ -23,11 +23,25 @@ sys.path[:] = [
 ]
 
 import threading
+import time
 from http.server import ThreadingHTTPServer
 
 from phone import config, httpapi
+from phone.door import apartment_record, write_apartment
+from phone.guest import GuestCodes
+from phone.keys import KeyBook
 from phone.sip import Softphone
 from phone.webrtc_mic import WebRtcMic
+
+
+def watch_guest_codes():
+    while True:
+        try:
+            if httpapi.GUESTS:
+                httpapi.GUESTS.sweep(config.PANELS)
+        except Exception as exc:
+            print("гость:", exc, flush=True)
+        time.sleep(5)
 
 
 def main():
@@ -35,8 +49,16 @@ def main():
     httpapi.PHONE = Softphone()
     httpapi.WEBRTC = WebRtcMic(httpapi.PHONE)
     httpapi.WEBRTC.start()
+    httpapi.GUESTS = GuestCodes(
+        Path(__file__).resolve().parent / "guest_codes.json",
+        apartment_record,
+        write_apartment,
+    )
+    httpapi.KEYS = KeyBook(Path(__file__).resolve().parent / "keys.json")
+    httpapi.GUESTS.sweep(config.PANELS)
     thread = threading.Thread(target=httpapi.PHONE.loop, daemon=True)
     thread.start()
+    threading.Thread(target=watch_guest_codes, name="guest-codes", daemon=True).start()
     server = ThreadingHTTPServer((config.HTTP_HOST, config.HTTP_PORT), httpapi.Handler)
     print(f"Софтфон {config.SIP_USER} → sip:{config.SERVER_IP}:{config.SERVER_PORT}")
     print(f"Откройте http://{config.HTTP_HOST}:{config.HTTP_PORT}")

@@ -1,0 +1,4 @@
+phone/guest_codes.json
+phone/keys.json
+phone/__pycache__/
+tests/__pycache__/

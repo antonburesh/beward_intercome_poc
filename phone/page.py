@@ -29,9 +29,23 @@ PAGE = """<!DOCTYPE html>
   img { max-width: 100%; }
   main {
     width: 100%;
-    max-width: 640px;
+    max-width: 1240px;
     margin: 0 auto;
     padding: 16px 16px max(16px, env(safe-area-inset-bottom));
+  }
+  .hero, .call { text-align: center; }
+  .call {
+    width: min(100%, 720px);
+    margin: 0 auto;
+  }
+  .call .debug, .call .note { text-align: left; }
+  .board {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    align-items: stretch;
+    gap: 16px;
+    margin-top: 18px;
   }
   .reg-error {
     color: #FF3B30;
@@ -65,10 +79,15 @@ PAGE = """<!DOCTYPE html>
     object-fit: contain;
     background: #0f0f12;
     border-radius: 24px;
-    margin-bottom: 16px;
+    margin: 0 auto 16px;
   }
-  .actions { display: flex; flex-direction: column; gap: 10px; }
-  .row { display: flex; gap: 10px; }
+  .actions {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 10px;
+  }
+  .actions button { flex: 1 1 200px; max-width: 280px; width: auto; }
   button {
     min-height: 48px;
     width: 100%;
@@ -79,7 +98,6 @@ PAGE = """<!DOCTYPE html>
     font-weight: 600;
     cursor: pointer;
   }
-  .row button { flex: 1 1 0; min-width: 0; }
   button:active { transform: scale(0.98); }
   button:disabled { background: #c6c6c8; color: #fff; cursor: default; transform: none; }
   .answer { background: #34C759; color: #fff; }
@@ -118,27 +136,94 @@ PAGE = """<!DOCTYPE html>
   }
   .debug-row span { color: #8e8e93; }
   .debug-row b { font-weight: 500; }
-  .face { margin-top: 28px; }
-  .face label {
+  .card {
+    flex: 1 1 300px;
+    width: 100%;
+    max-width: 400px;
+    margin-top: 0;
+    padding: 16px 16px 18px;
+    background: #fff;
+    border-radius: 22px;
+    text-align: left;
+  }
+  .card h3 {
+    font-size: 22px;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+  }
+  .card .lead {
+    margin-top: 6px;
+    color: #636366;
+    font-size: 16px;
+    line-height: 1.4;
+  }
+  .card label {
     display: block;
     margin: 14px 0 6px;
-    color: #8e8e93;
+    color: #636366;
     font-size: 16px;
-    font-weight: 500;
+    font-weight: 600;
   }
-  .face input {
+  .card input, .card select {
     display: block;
     width: 100%;
     min-height: 48px;
     border: 0;
     border-radius: 14px;
-    background: #fff;
+    background: #f0f2f8;
     padding: 12px 14px;
     font-size: 18px;
     color: #1c1c1e;
   }
-  .face button { margin-top: 14px; }
-  .face .note { margin-top: 10px; }
+  .card .open { margin-top: 14px; }
+  .card .note { margin-top: 10px; }
+  .empty { margin-top: 14px; color: #8e8e93; font-size: 16px; }
+  .person {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    align-items: center;
+    gap: 8px 12px;
+    margin-top: 10px;
+    padding: 12px;
+    background: #f0f2f8;
+    border-radius: 16px;
+  }
+  .thumb {
+    width: 64px;
+    height: 64px;
+    border-radius: 14px;
+    object-fit: cover;
+    background: #d1d1d6;
+    flex: 0 0 auto;
+  }
+  .person .who { flex: 1 1 140px; min-width: 0; }
+  .person .who b { display: block; font-size: 18px; font-weight: 600; }
+  .person .who span, .person .left { color: #8e8e93; font-size: 15px; }
+  .person .code {
+    font-size: 26px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+  }
+  .person .keynum {
+    font-size: 16px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+  }
+  .person button, .danger {
+    width: auto;
+    flex: 0 0 auto;
+    min-width: 132px;
+    min-height: 44px;
+    margin: 0;
+  }
+  .danger {
+    width: 100%;
+    margin-top: 14px;
+    background: transparent;
+    color: #FF3B30;
+    border: 1px solid #FF3B30;
+  }
 </style>
 </head>
 <body>
@@ -152,6 +237,7 @@ const regError = document.getElementById("reg-error");
 let lastRing = "";
 let audioCtx;
 let doorNote = "";
+let keyNote = "";
 
 function beep() {
   try {
@@ -222,22 +308,13 @@ function render(data) {
     doorNote = "";
     stopMic();
     stage.innerHTML = `
-      <p class="eyebrow">Ожидание</p>
-      <h2 class="idle-title">Наберите квартиру на домофоне</h2>
-      <p class="sub">Вызов придёт на этот экран.</p>
-      <form class="face" id="face-form">
-        <label for="face-apt">Квартира</label>
-        <input id="face-apt" name="apartment" inputmode="numeric" autocomplete="off" maxlength="4">
-        <label for="face-file">Фото</label>
-        <input id="face-file" name="photo" type="file" accept="image/*">
-        <p class="sub">Снимок с телефона уменьшится сам: панели нужен JPG от 300 пикселей и не больше 100 КБ.</p>
-        <button class="open" type="submit">Загрузить фото</button>
-        <p class="note" id="face-msg"></p>
-      </form>`;
-    document.getElementById("face-form").onsubmit = (event) => {
-      event.preventDefault();
-      uploadFace();
-    };
+      <header class="hero">
+        <p class="eyebrow">Ожидание</p>
+        <h2 class="idle-title">Наберите квартиру на домофоне</h2>
+        <p class="sub">Вызов придёт на этот экран.</p>
+      </header>
+      ${settingsCards(data)}`;
+    bindSettings();
     return;
   }
   if (call.state === "ringing" && call.id !== lastRing) {
@@ -254,21 +331,22 @@ function render(data) {
       : "");
   const actions = talking
     ? `<button class="reject" id="reject" type="button">Завершить</button>`
-    : `<div class="row">
-         <button class="answer" id="answer" type="button">Ответить</button>
-         <button class="reject" id="reject" type="button">Отклонить</button>
-       </div>`;
+    : `<button class="answer" id="answer" type="button">Ответить</button>
+       <button class="reject" id="reject" type="button">Отклонить</button>`;
   stage.innerHTML = `
-    <p class="eyebrow">${talking ? "Разговор" : "Входящий вызов"}</p>
-    <div class="apt">${esc(call.apartment || "?")}</div>
-    <p class="panel">${esc(panelName)}</p>
-    ${shot}
-    <div class="actions">
-      ${actions}
-      <button class="open" id="open" type="button" ${call.panel_known ? "" : "disabled"}>Открыть дверь</button>
-    </div>
-    <p class="note" id="note">${esc(noteText())}</p>
-    ${debugBlock(call, panelName)}`;
+    <section class="call">
+      <p class="eyebrow">${talking ? "Разговор" : "Входящий вызов"}</p>
+      <div class="apt">${esc(call.apartment || "?")}</div>
+      <p class="panel">${esc(panelName)}</p>
+      ${shot}
+      <div class="actions">
+        ${actions}
+        <button class="open" id="open" type="button" ${call.panel_known ? "" : "disabled"}>Открыть дверь</button>
+      </div>
+      <p class="note" id="note">${esc(noteText())}</p>
+      ${debugBlock(call, panelName)}
+    </section>
+    ${settingsCards(data)}`;
   if (!talking && call.panel_known) shotAt = Date.now();
   if (!talking) {
     document.getElementById("answer").onclick = () => { startMedia(); post("/api/answer"); };
@@ -277,6 +355,288 @@ function render(data) {
   }
   document.getElementById("reject").onclick = () => post(talking ? "/api/hangup" : "/api/reject");
   if (call.panel_known) document.getElementById("open").onclick = openDoor;
+  bindSettings();
+}
+
+function faceLabel(item) {
+  const apartment = String(item.apartment || "");
+  if (/^\d+$/.test(apartment)) return "Квартира " + apartment;
+  return apartment || "Фото без подписи";
+}
+
+function settingsCards(data) {
+  return `<div class="board">${faceCard(data.faces, data.panel_count)}${guestBlock(data.guests, data.panels)}${keyCard(data.keys)}</div>`;
+}
+
+function faceCard(faces, panelCount) {
+  const items = (faces || []).map(item => `
+    <div class="person">
+      <img class="thumb" alt="${esc(faceLabel(item))}" src="/face?panel=${encodeURIComponent(item.panel)}&id=${encodeURIComponent(item.id)}">
+      <div class="who">
+        <b>${esc(faceLabel(item))}</b>
+        ${Number(panelCount) > 1 ? `<span>${esc(item.panel_name || "Панель")}</span>` : ""}
+      </div>
+      <button class="reject" type="button" data-action="face" data-id="${esc(item.id)}" data-panel="${esc(item.panel)}" data-label="${esc(faceLabel(item))}">Удалить фото</button>
+    </div>`).join("");
+  const clear = items
+    ? `<button class="danger" id="clear-faces" type="button">Удалить все фотографии</button>`
+    : `<p class="empty">Фотографий пока нет. Добавьте снимок жителя — дверь откроется, когда панель его узнает.</p>`;
+  return `
+    <form class="card" id="face-form">
+      <h3>Вход по лицу</h3>
+      <p class="lead">Фотография жителя. Человек подходит к камере домофона, панель узнаёт его и открывает дверь. Снимок сохраняется на каждом домофоне. Телефон сам уменьшит фото до нужного размера.</p>
+      <label for="face-apt">Номер квартиры</label>
+      <input id="face-apt" name="apartment" inputmode="numeric" autocomplete="off" maxlength="4" placeholder="Например, 12">
+      <label for="face-file">Фотография жителя</label>
+      <input id="face-file" name="photo" type="file" accept="image/*">
+      <button class="open" type="submit">Добавить фотографию</button>
+      <p class="note" id="face-msg"></p>
+      ${items}
+      ${clear}
+    </form>`;
+}
+
+function guestBlock(guests, panels) {
+  const list = Array.isArray(panels) ? panels : [];
+  const options = ['<option value="all" selected>На все домофоны</option>']
+    .concat(list.map(item => `<option value="${esc(item.ip)}">${esc(item.name || item.ip || "Домофон")}</option>`))
+    .join("");
+  const items = (guests || []).map(item => `
+    <div class="person">
+      <div class="who">
+        <b>Квартира ${esc(item.apartment)}</b>
+        <span class="left" data-expires="${Number(item.expires) * 1000}"></span>
+        <span>${esc(item.doors || "Все домофоны")}</span>
+      </div>
+      <b class="code">${esc(item.code)}</b>
+      <button class="reject" type="button" data-action="revoke" data-apt="${esc(item.apartment)}">Удалить код</button>
+    </div>`).join("");
+  const clear = items
+    ? `<button class="danger" id="clear-guests" type="button">Удалить все коды</button>`
+    : `<p class="empty">Сейчас нет действующих кодов.</p>`;
+  return `
+    <form class="card" id="guest-form">
+      <h3>Временный код</h3>
+      <p class="lead">Код для гостя. На домофоне он набирает эти цифры и нажимает кнопку вызова. Можно записать код на один домофон или сразу на все. На одну квартиру можно выдать только один код. Когда время кончится, код пропадёт сам и на двери снова будет прежний.</p>
+      <label for="guest-apt">Номер квартиры</label>
+      <input id="guest-apt" inputmode="numeric" maxlength="4" autocomplete="off" placeholder="Например, 12">
+      <label for="guest-panel">Куда записать код</label>
+      <select id="guest-panel">
+        ${options}
+      </select>
+      <label for="guest-min">Сколько код будет работать</label>
+      <select id="guest-min">
+        <option value="15">15 минут</option>
+        <option value="30" selected>30 минут</option>
+        <option value="60">1 час</option>
+        <option value="180">3 часа</option>
+      </select>
+      <button class="open" type="submit">Дать код гостю</button>
+      <p class="note" id="guest-msg"></p>
+      ${items}
+      ${clear}
+    </form>`;
+}
+
+function keyCard(keys) {
+  const items = (keys || []).map(item => `
+    <div class="person">
+      <div class="who">
+        <b>Квартира ${esc(item.apartment)}</b>
+        <span class="keynum">${esc(item.key)}</span>
+      </div>
+      <button class="reject" type="button" data-action="key" data-key="${esc(item.key)}" data-apt="${esc(item.apartment)}">Удалить</button>
+    </div>`).join("");
+  const clear = items
+    ? `<button class="danger" id="clear-keys" type="button">Удалить все ключи</button>`
+    : `<p class="empty">Ключей с этого экрана пока нет.</p>`;
+  return `
+    <form class="card" id="key-form">
+      <h3>Ключ</h3>
+      <p class="lead">Номер ключа, который уже есть у жителя. Впишите квартиру и номер ключа — он сразу запишется на все домофоны. Дверь откроется, когда этот ключ поднесут к считывателю.</p>
+      <label for="key-apt">Номер квартиры</label>
+      <input id="key-apt" inputmode="numeric" maxlength="4" autocomplete="off" placeholder="Например, 12">
+      <label for="key-number">Номер ключа</label>
+      <input id="key-number" maxlength="20" autocomplete="off" spellcheck="false" placeholder="Номер с ключа">
+      <button class="open" type="submit">Добавить ключ</button>
+      <p class="note" id="key-msg">${esc(keyNote)}</p>
+      ${items}
+      ${clear}
+    </form>`;
+}
+
+function bindSettings() {
+  const face = document.getElementById("face-form");
+  if (face) face.onsubmit = (event) => { event.preventDefault(); uploadFace(); };
+  const guest = document.getElementById("guest-form");
+  if (guest) guest.onsubmit = issueGuest;
+  document.querySelectorAll("[data-action='revoke']").forEach(button => {
+    button.onclick = () => revokeGuest(button.getAttribute("data-apt"));
+  });
+  document.querySelectorAll("[data-action='face']").forEach(button => {
+    button.onclick = () => deleteFace(button.getAttribute("data-panel"), button.getAttribute("data-id"), button.getAttribute("data-label"));
+  });
+  const clearFaces = document.getElementById("clear-faces");
+  if (clearFaces) clearFaces.onclick = deleteAllFaces;
+  const clearGuests = document.getElementById("clear-guests");
+  if (clearGuests) clearGuests.onclick = deleteAllGuests;
+  const keyForm = document.getElementById("key-form");
+  if (keyForm) keyForm.onsubmit = addKey;
+  document.querySelectorAll("[data-action='key']").forEach(button => {
+    button.onclick = () => deleteKey(button.getAttribute("data-key"), button.getAttribute("data-apt"));
+  });
+  const clearKeys = document.getElementById("clear-keys");
+  if (clearKeys) clearKeys.onclick = deleteAllKeys;
+  tickGuests();
+}
+
+async function addKey(event) {
+  event.preventDefault();
+  const apartment = (document.getElementById("key-apt").value || "").trim();
+  const key = (document.getElementById("key-number").value || "").trim();
+  keyNote = "записываю ключ…";
+  try {
+    const res = await fetch("/api/key", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ apartment, key })
+    });
+    const data = await res.json();
+    keyNote = data.key || "не удалось записать ключ";
+  } catch (e) {
+    keyNote = "не удалось записать ключ";
+  }
+  lastView = "";
+  refresh();
+}
+
+async function deleteKey(key, apartment) {
+  if (!confirm("Удалить ключ квартиры " + (apartment || "") + "?")) return;
+  keyNote = "удаляю ключ…";
+  try {
+    const res = await fetch("/api/key", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ key, remove: true })
+    });
+    const data = await res.json();
+    keyNote = data.key || "не удалось удалить ключ";
+  } catch (e) {
+    keyNote = "не удалось удалить ключ";
+  }
+  lastView = "";
+  refresh();
+}
+
+async function deleteAllKeys() {
+  if (!confirm("Удалить все ключи, добавленные с этого экрана? На домофонах их тоже больше не будет.")) return;
+  keyNote = "удаляю ключи…";
+  try {
+    const res = await fetch("/api/key/clear", { method: "POST" });
+    const data = await res.json();
+    keyNote = data.key || "не удалось удалить ключи";
+  } catch (e) {
+    keyNote = "не удалось удалить ключи";
+  }
+  lastView = "";
+  refresh();
+}
+
+async function issueGuest(event) {
+  event.preventDefault();
+  const note = document.getElementById("guest-msg");
+  const apartment = (document.getElementById("guest-apt").value || "").trim();
+  const minutes = Number(document.getElementById("guest-min").value);
+  const where = (document.getElementById("guest-panel") || {}).value || "all";
+  const payload = { apartment, minutes };
+  if (where === "all") payload.all = true;
+  else payload.panel = where;
+  if (note) note.textContent = "записываю код…";
+  try {
+    const res = await fetch("/api/guest", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    });
+    const data = await res.json();
+    if (note) note.textContent = data.guest || "не удалось записать код";
+  } catch (e) {
+    if (note) note.textContent = "не удалось записать код";
+  }
+  lastView = "";
+  refresh();
+}
+
+async function revokeGuest(apartment) {
+  await fetch("/api/guest", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ apartment, remove: true })
+  });
+  lastView = "";
+  refresh();
+}
+
+async function deleteAllGuests() {
+  if (!confirm("Удалить все временные коды? Гости больше не смогут войти по ним.")) return;
+  const note = document.getElementById("guest-msg");
+  if (note) note.textContent = "снимаю коды…";
+  try {
+    const res = await fetch("/api/guest/clear", { method: "POST" });
+    const data = await res.json();
+    if (note) note.textContent = data.guest || "не удалось снять коды";
+  } catch (e) {
+    if (note) note.textContent = "не удалось снять коды";
+  }
+  lastView = "";
+  refresh();
+}
+
+async function deleteFace(panel, id, label) {
+  if (!confirm("Удалить фотографию: " + (label || "эта запись") + "?")) return;
+  const note = document.getElementById("face-msg");
+  if (note) note.textContent = "удаляю фотографию…";
+  try {
+    const res = await fetch("/api/face/delete", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ panel, id })
+    });
+    const data = await res.json();
+    if (note) note.textContent = data.face || "не удалось удалить фото";
+  } catch (e) {
+    if (note) note.textContent = "не удалось удалить фото";
+  }
+  lastView = "";
+  refresh();
+}
+
+async function deleteAllFaces() {
+  if (!confirm("Удалить все фотографии на всех домофонах? Вход по лицу перестанет работать, пока фото не добавят снова.")) return;
+  const note = document.getElementById("face-msg");
+  if (note) note.textContent = "удаляю фотографии…";
+  try {
+    const res = await fetch("/api/face/delete", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ all: true })
+    });
+    const data = await res.json();
+    if (note) note.textContent = data.face || "не удалось удалить фото";
+  } catch (e) {
+    if (note) note.textContent = "не удалось удалить фото";
+  }
+  lastView = "";
+  refresh();
+}
+
+function tickGuests() {
+  document.querySelectorAll("[data-expires]").forEach(el => {
+    const left = Math.max(0, Math.round((Number(el.dataset.expires) - Date.now()) / 1000));
+    const minutes = Math.floor(left / 60);
+    const seconds = String(left % 60).padStart(2, "0");
+    el.textContent = left ? "ещё " + minutes + ":" + seconds : "истекает";
+  });
 }
 
 async function uploadFace() {
@@ -298,6 +658,8 @@ async function uploadFace() {
   } catch (e) {
     if (note) note.textContent = "не удалось загрузить";
   }
+  lastView = "";
+  refresh();
 }
 
 async function post(url) {
@@ -541,6 +903,7 @@ async function refresh() {
 
 refresh();
 setInterval(refresh, 700);
+setInterval(tickGuests, 1000);
 </script>
 </body>
 </html>
