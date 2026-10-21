@@ -1,4 +1,8 @@
+config/
 phone/guest_codes.json
 phone/keys.json
+phone/settings.json
+.env
+kamailio/dbtext/subscriber
 phone/__pycache__/
 tests/__pycache__/

@@ -1,4 +1,4 @@
-"""Load phone/settings.json. The web bind address and registration expiry stay fixed."""
+"""Load config/settings.json. The web bind address and registration expiry stay fixed."""
 
 import json
 from pathlib import Path
@@ -19,7 +19,8 @@ SIP_USER = ""
 SIP_PASSWORD = ""
 PANELS = []
 
-_PATH = Path(__file__).resolve().parent / "settings.json"
+_ROOT = Path(__file__).resolve().parent.parent
+_PATH = _ROOT / "config" / "settings.json"
 
 
 def _need(obj, key, where):
@@ -39,7 +40,11 @@ def load_settings(path=None):
     global SERVER_IP, SERVER_PORT, SIP_USER, SIP_PASSWORD, PANELS
     file = Path(path) if path else _PATH
     if not file.is_file():
-        raise SystemExit(f"Нет файла настроек {file}")
+        raise SystemExit(
+            f"Нет файла настроек {file}. Скопируйте примеры: "
+            "mkdir -p config && cp config.example/env config.example/settings.json "
+            "config.example/subscriber config/"
+        )
     raw = json.loads(file.read_text())
     sip = raw.get("sip")
     if not isinstance(sip, dict):

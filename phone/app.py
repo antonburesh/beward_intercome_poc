@@ -49,12 +49,9 @@ def main():
     httpapi.PHONE = Softphone()
     httpapi.WEBRTC = WebRtcMic(httpapi.PHONE)
     httpapi.WEBRTC.start()
-    httpapi.GUESTS = GuestCodes(
-        Path(__file__).resolve().parent / "guest_codes.json",
-        apartment_record,
-        write_apartment,
-    )
-    httpapi.KEYS = KeyBook(Path(__file__).resolve().parent / "keys.json")
+    local = Path(__file__).resolve().parent.parent / "config"
+    httpapi.GUESTS = GuestCodes(local / "guest_codes.json", apartment_record, write_apartment)
+    httpapi.KEYS = KeyBook(local / "keys.json")
     httpapi.GUESTS.sweep(config.PANELS)
     thread = threading.Thread(target=httpapi.PHONE.loop, daemon=True)
     thread.start()

@@ -1,7 +1,7 @@
 """Local SIP softphone.
 
 app.py       start with: python3 phone/app.py
-settings.json  SIP account 101 and the door panels on this LAN
+config/settings.json  local SIP account and door panels, not stored in git
 config.py    loads settings.json
 page.py      browser page
 sip.py       registration, calls, RTP

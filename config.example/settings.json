@@ -1,0 +1,16 @@
+{
+  "_comment": "Рабочая копия этого файла — config/settings.json, она не хранится в git. sip.ip совпадает с ADVERTISE_IP в config/env. panels — панели в этой сети. Звонок сопоставляется с панелью по заголовку X-Door-Station, а если его нет — по пользователю From. Вторая панель: добавьте объект и пользователя с тем же sip_user в config/subscriber. snapshot_path, door_path, username и password можно не писать — подставятся CGI Beward и вход admin/admin.",
+  "sip": {
+    "ip": "192.168.1.10",
+    "port": 5060,
+    "user": "101",
+    "password": "phone-password"
+  },
+  "panels": [
+    {
+      "name": "Подъезд 1",
+      "sip_user": "100",
+      "ip": "192.168.1.20"
+    }
+  ]
+}

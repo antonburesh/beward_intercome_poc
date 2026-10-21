@@ -4,12 +4,13 @@ services:
     container_name: sip
     restart: unless-stopped
     entrypoint: ["/bin/sh", "/etc/kamailio/entrypoint.sh"]
-    environment:
-      ADVERTISE_IP: ${ADVERTISE_IP}
+    env_file:
+      - ./config/env
     ports:
-      - "5060:5060/udp"
-      - "5060:5060/tcp"
+    - "5060:5060/udp"
+    - "5060:5060/tcp"
     volumes:
       - ./kamailio/kamailio.cfg:/etc/kamailio/kamailio.cfg:ro
       - ./kamailio/entrypoint.sh:/etc/kamailio/entrypoint.sh:ro
-      - ./kamailio/dbtext:/etc/kamailio/dbtext:ro
+      - ./kamailio/dbtext/version:/etc/kamailio/dbtext/version:ro
+      - ./config/subscriber:/etc/kamailio/dbtext/subscriber:ro

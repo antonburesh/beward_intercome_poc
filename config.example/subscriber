@@ -1,3 +1,3 @@
 id(int,auto) username(string) domain(string) password(string) ha1(string,null) ha1b(string,null) 
-1:100:192.168.9.92:beward100::
-2:101:192.168.9.92:phone101::
+1:100:192.168.1.10:panel-password::
+2:101:192.168.1.10:phone-password::
