@@ -142,13 +142,14 @@ python3 phone/app.py
 Из каталога проекта:
 
 ```bash
-docker compose up -d
-python3 phone/app.py
+docker compose up -d --build
 ```
 
-Первая команда поднимает SIP-сервер (контейнер `sip`) и подключает `config/env` и `config/subscriber`. Вторая — софтфон, он читает `config/settings.json`. Если каталога `config/` ещё нет, сначала скопируйте туда примеры, как в разделе «Настройки». Для микрофона нужен пакет `aiortc` в том же Python, которым запускается `phone/app.py`. Уменьшение фото делает `/usr/bin/sips` (есть в macOS).
+Команда поднимает два контейнера. `sip` — Kamailio, порты `5060/udp` и `5060/tcp`, настройки из `config/env` и `config/subscriber`. `phone` — софтфон: страница на [http://127.0.0.1:8090](http://127.0.0.1:8090), SIP и RTP опубликованы на адресе из `sip.ip`, чтобы панель до них дошла. Внутри контейнера этого адреса нет, поэтому сокеты слушают `0.0.0.0`, а в SIP и SDP подставляется `sip.ip`. Если каталога `config/` ещё нет, сначала скопируйте туда примеры, как в разделе «Настройки».
 
-Остановить SIP-сервер:
+Фото для входа по лицу уменьшает Pillow внутри образа. На macOS без контейнера ту же работу делает `/usr/bin/sips`.
+
+Остановить оба контейнера:
 
 ```bash
 docker compose stop
@@ -184,11 +185,12 @@ python3 -m unittest tests.test_guest tests.test_keys tests.test_echo tests.test_
 
 | Файл | Зачем |
 | --- | --- |
-| `compose.yaml` | Контейнер Kamailio, порты `5060/udp` и `5060/tcp` |
+| `compose.yaml` | Контейнеры `sip` и `phone` |
 | `config.example/` | Примеры настроек. Их коммитят |
 | `config/` | Рабочие настройки и локальные списки кодов и ключей. Каталог в git не входит. `subscriber` и `env` смонтированы в контейнер `sip` |
 | `kamailio/kamailio.cfg` | Регистрация и перевод квартир `1`–`1000` на `101`. Адрес подставляется из `ADVERTISE_IP` при старте |
 | `kamailio/dbtext/version` | Версия таблицы `subscriber` для Kamailio. Это не пароли |
+| `Dockerfile`, `requirements.txt` | Образ софтфона: Python, aiortc, Pillow |
 | `phone/app.py` | Запуск: страница, SIP, таймер кодов. Настройки берёт из `config/` |
 | `phone/sip.py` | Регистрация, звонок, RTP, часы звука 20 мс |
 | `phone/sdp.py` | Ответ SDP: звук только G.711A |

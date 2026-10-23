@@ -138,6 +138,40 @@ def _sips_size(path):
     return width, height
 
 
+def _pillow_jpeg(data):
+    """Same size rule as sips, for the Linux image where sips is absent."""
+    try:
+        from PIL import Image
+    except ImportError:
+        return None
+    import io
+
+    try:
+        image = Image.open(io.BytesIO(data)).convert("RGB")
+    except OSError:
+        return None
+    resample = getattr(getattr(Image, "Resampling", Image), "LANCZOS")
+    for long_side in (800, 640, 480):
+        copy = image.copy()
+        copy.thumbnail((long_side, long_side), resample)
+        width, height = copy.size
+        if min(width, height) < 300 and min(width, height) > 0:
+            if width <= height:
+                height = round(height * 300 / width)
+                width = 300
+            else:
+                width = round(width * 300 / height)
+                height = 300
+            copy = copy.resize((width, height), resample)
+        for quality in (60, 40, 25, 15):
+            buf = io.BytesIO()
+            copy.save(buf, format="JPEG", quality=quality)
+            blob = buf.getvalue()
+            if blob.startswith(b"\xff\xd8") and min(copy.size) >= 300 and len(blob) <= MAX_FACE_BYTES:
+                return blob
+    return None
+
+
 def prepare_face_jpeg(data):
     """Turn a phone photo into the JPG facedb.asp accepts.
 
@@ -145,8 +179,10 @@ def prepare_face_jpeg(data):
     each side, at most 100 KB. A picture straight from the phone is larger
     than that, so it is scaled down here before the upload.
     """
-    if not data or len(data) > MAX_FACE_UPLOAD or not os.path.isfile("/usr/bin/sips"):
+    if not data or len(data) > MAX_FACE_UPLOAD:
         return None
+    if not os.path.isfile("/usr/bin/sips"):
+        return _pillow_jpeg(data)
     with tempfile.TemporaryDirectory() as folder:
         source = Path(folder) / "source"
         dest = Path(folder) / "face.jpg"

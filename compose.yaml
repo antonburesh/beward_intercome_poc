@@ -1,6 +1,6 @@
 services:
   kamailio:
-    image: ghcr.io/kamailio/kamailio-ci:6.1-alpine
+    build: ./kamailio
     container_name: sip
     restart: unless-stopped
     entrypoint: ["/bin/sh", "/etc/kamailio/entrypoint.sh"]
@@ -14,3 +14,25 @@ services:
       - ./kamailio/entrypoint.sh:/etc/kamailio/entrypoint.sh:ro
       - ./kamailio/dbtext/version:/etc/kamailio/dbtext/version:ro
       - ./config/subscriber:/etc/kamailio/dbtext/subscriber:ro
+
+  phone:
+    build: .
+    container_name: phone
+    restart: unless-stopped
+    depends_on:
+      - kamailio
+    environment:
+      HTTP_HOST: 0.0.0.0
+      SIP_BIND: 0.0.0.0
+      SIP_PORT: "5062"
+      RTP_PORT: "40000"
+      VIDEO_PORT: "40002"
+      WEBRTC_PORT: "40010"
+    ports:
+      - "127.0.0.1:8090:8090"
+      - "5062:5062/udp"
+      - "40000:40000/udp"
+      - "40002:40002/udp"
+      - "40010:40010/udp"
+    volumes:
+      - ./config:/app/config

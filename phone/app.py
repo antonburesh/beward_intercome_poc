@@ -57,8 +57,9 @@ def main():
     thread.start()
     threading.Thread(target=watch_guest_codes, name="guest-codes", daemon=True).start()
     server = ThreadingHTTPServer((config.HTTP_HOST, config.HTTP_PORT), httpapi.Handler)
+    shown = "127.0.0.1" if config.HTTP_HOST == "0.0.0.0" else config.HTTP_HOST
     print(f"Софтфон {config.SIP_USER} → sip:{config.SERVER_IP}:{config.SERVER_PORT}")
-    print(f"Откройте http://{config.HTTP_HOST}:{config.HTTP_PORT}")
+    print(f"Откройте http://{shown}:{config.HTTP_PORT}")
     try:
         server.serve_forever()
     except KeyboardInterrupt:

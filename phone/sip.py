@@ -1,6 +1,7 @@
 """SIP softphone: registration, one call at a time, and RTP send/receive."""
 
 import hashlib
+import os
 import queue
 import re
 import secrets
@@ -113,8 +114,12 @@ def public_headers(headers):
 class Softphone:
     def __init__(self):
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        self.sock.bind((config.SERVER_IP, 0))
-        self.local_ip, self.local_port = self.sock.getsockname()
+        # SIP_BIND is 0.0.0.0 in Docker, where the LAN address is not on an interface.
+        # Contact and SDP still use sip.ip so the panel can reach the published ports.
+        self.bind_ip = os.environ.get("SIP_BIND") or config.SERVER_IP or "0.0.0.0"
+        self.sock.bind((self.bind_ip, int(os.environ.get("SIP_PORT") or 0)))
+        _bound_ip, self.local_port = self.sock.getsockname()
+        self.local_ip = config.SERVER_IP or _bound_ip
         self.reg_call_id = secrets.token_hex(8)
         self.reg_tag = secrets.token_hex(4)
         self.reg_cseq = 0
@@ -214,18 +219,18 @@ class Softphone:
             sdp,
         )
 
-    def bind_udp(self):
+    def bind_udp(self, port=0):
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        sock.bind((self.local_ip, 0))
+        sock.bind((self.bind_ip, port))
         return sock
 
     def make_sdp(self, offer):
         if self.rtp_sock is None:
-            self.rtp_sock = self.bind_udp()
+            self.rtp_sock = self.bind_udp(int(os.environ.get("RTP_PORT") or 0))
         sections, _ = parse_offer(offer or "")
         wants_video = any(section.get("h264") for section in sections)
         if wants_video and self.video_sock is None:
-            self.video_sock = self.bind_udp()
+            self.video_sock = self.bind_udp(int(os.environ.get("VIDEO_PORT") or 0))
         audio_port = self.rtp_sock.getsockname()[1]
         video_port = self.video_sock.getsockname()[1] if self.video_sock else 0
         return answer_sdp(config.SIP_USER, self.local_ip, audio_port, video_port, offer)

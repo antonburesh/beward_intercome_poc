@@ -11,7 +11,7 @@ from av.audio.resampler import AudioResampler
 
 from phone.codecs import alaw_to_linear
 from phone.sip import Softphone
-from phone.webrtc_mic import WebRtcMic, resample_to_pcm8
+from phone.webrtc_mic import WebRtcMic, advertise_sdp, resample_to_pcm8
 
 
 def tone(rate, count, amplitude=10000):
@@ -32,6 +32,24 @@ def frame_at(pcm, rate, pts):
 
 
 class WebRtcMicTest(unittest.TestCase):
+    def test_answer_sdp_uses_the_published_address(self):
+        raw = "\r\n".join([
+            "v=0",
+            "c=IN IP4 172.17.0.2",
+            "m=audio 40010 UDP/TLS/RTP/SAVPF 111",
+            "a=rtcp:40010 IN IP4 172.17.0.2",
+            "a=candidate:1 1 UDP 1 172.17.0.2 40010 typ host",
+            "a=candidate:2 1 UDP 1 172.18.0.2 40010 typ host",
+            "a=candidate:3 1 UDP 1 2001:db8::1 40010 typ host",
+            "",
+        ])
+        out = advertise_sdp(raw, "192.168.9.92", 40010)
+        self.assertIn("c=IN IP4 192.168.9.92", out)
+        self.assertIn("a=rtcp:40010 IN IP4 192.168.9.92", out)
+        self.assertEqual(out.count("a=candidate:"), 1)
+        self.assertIn("192.168.9.92 40010 typ host", out)
+        self.assertNotIn("2001:db8", out)
+
     def test_resample_keeps_the_tone(self):
         resampler = AudioResampler(format="s16", layout="mono", rate=8000)
         pcm = b""

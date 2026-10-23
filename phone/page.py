@@ -360,7 +360,7 @@ function render(data) {
 
 function faceLabel(item) {
   const apartment = String(item.apartment || "");
-  if (/^\d+$/.test(apartment)) return "Квартира " + apartment;
+  if (/^\\d+$/.test(apartment)) return "Квартира " + apartment;
   return apartment || "Фото без подписи";
 }
 

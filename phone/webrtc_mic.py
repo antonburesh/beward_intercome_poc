@@ -7,11 +7,55 @@ The one HTTP exchange is the session description, not the audio.
 """
 
 import asyncio
+import os
 import threading
 
 from aiortc import RTCPeerConnection, RTCSessionDescription
 from aiortc.mediastreams import MediaStreamError
 from av.audio.resampler import AudioResampler
+
+from phone import config
+
+
+def advertise_sdp(sdp, ip, port=0):
+    """Point the browser at the LAN address Docker publishes, not the container IP."""
+    lines = []
+    kept_candidate = False
+    for line in sdp.replace("\r\n", "\n").replace("\r", "\n").split("\n"):
+        if not line:
+            continue
+        if line.startswith("c=IN IP4 "):
+            lines.append(f"c=IN IP4 {ip}")
+            continue
+        if line.startswith("a=rtcp:") and "IP4" in line:
+            parts = line.split()
+            if parts[-1].count(".") == 3:
+                parts[-1] = ip
+            lines.append(" ".join(parts))
+            continue
+        if line.startswith("a=candidate:"):
+            parts = line.split()
+            if len(parts) < 6 or ":" in parts[4] or kept_candidate:
+                continue
+            if port and parts[5] != str(port):
+                continue
+            parts[4] = ip
+            kept_candidate = True
+            lines.append(" ".join(parts))
+            continue
+        lines.append(line)
+    return "\r\n".join(lines) + "\r\n"
+
+
+def _pin_udp_port(loop, port):
+    original = loop.create_datagram_endpoint
+
+    async def pinned(protocol_factory, local_addr=None, **kwargs):
+        if local_addr and len(local_addr) == 2 and local_addr[1] == 0:
+            local_addr = (local_addr[0], port)
+        return await original(protocol_factory, local_addr=local_addr, **kwargs)
+
+    loop.create_datagram_endpoint = pinned
 
 
 def resample_to_pcm8(resampler, frame):
@@ -32,6 +76,9 @@ class WebRtcMic:
 
     def start(self):
         self.loop = asyncio.new_event_loop()
+        port = int(os.environ.get("WEBRTC_PORT") or 0)
+        if port:
+            _pin_udp_port(self.loop, port)
         threading.Thread(target=self.loop.run_forever, name="webrtc", daemon=True).start()
 
     def accept_offer_sync(self, sdp, timeout=5):
@@ -62,7 +109,11 @@ class WebRtcMic:
         answer = await pc.createAnswer()
         await pc.setLocalDescription(answer)
         await self._wait_ice(pc)
-        return pc.localDescription.sdp
+        sdp = pc.localDescription.sdp
+        port = int(os.environ.get("WEBRTC_PORT") or 0)
+        if port and config.SERVER_IP:
+            sdp = advertise_sdp(sdp, config.SERVER_IP, port)
+        return sdp
 
     async def _wait_ice(self, pc):
         if pc.iceGatheringState == "complete":

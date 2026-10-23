@@ -1,9 +1,11 @@
-"""Load config/settings.json. The web bind address and registration expiry stay fixed."""
+"""Load config/settings.json. Registration expiry stays fixed."""
 
 import json
+import os
 from pathlib import Path
 
-HTTP_HOST = "127.0.0.1"
+# Inside Docker this is 0.0.0.0 and the host publishes only 127.0.0.1:8090.
+HTTP_HOST = os.environ.get("HTTP_HOST") or "127.0.0.1"
 HTTP_PORT = 8090
 EXPIRES = 120
 
