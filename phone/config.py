@@ -6,7 +6,7 @@ from pathlib import Path
 
 # Inside Docker this is 0.0.0.0 and the host publishes only 127.0.0.1:8090.
 HTTP_HOST = os.environ.get("HTTP_HOST") or "127.0.0.1"
-HTTP_PORT = 8090
+HTTP_PORT = int(os.environ.get("HTTP_PORT") or 8090)
 EXPIRES = 120
 
 # Beward CGI and web login, used when a panel does not set its own.

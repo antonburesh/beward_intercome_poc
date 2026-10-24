@@ -20,9 +20,11 @@ fi
 sed -i "s/^ADVERTISE_IP=.*/ADVERTISE_IP=${ip}/" config/env
 # The first ip is the SIP server. Panel addresses are left alone.
 sed -i "0,/\"ip\":/s/\"ip\": \"[^\"]*\"/\"ip\": \"${ip}\"/" config/settings.json
+# OFS must be set before $3 is assigned, otherwise awk rewrites the line with spaces.
 awk -F: -v ip="$ip" '
+  BEGIN { OFS = ":" }
   NR == 1 { print; next }
-  /^[0-9]+:/ { $3 = ip; OFS = ":"; print; next }
+  /^[0-9]+:/ { $3 = ip; print; next }
   { print }
 ' config/subscriber > config/subscriber.tmp
 mv config/subscriber.tmp config/subscriber
@@ -42,7 +44,7 @@ $dc compose -f compose.prod.yaml up -d --build --wait --wait-timeout 180
 ok=0
 i=0
 while [ "$i" -lt 30 ]; do
-  if curl -sf http://127.0.0.1:8090/api/state | grep -q '"registered": true'; then
+  if curl -sf http://127.0.0.1:8091/api/state | grep -q '"registered": true'; then
     ok=1
     break
   fi
@@ -56,7 +58,7 @@ if [ "$ok" != 1 ]; then
   exit 1
 fi
 
-curl -sf http://127.0.0.1:8090/api/state
+curl -sf http://127.0.0.1:8091/api/state
 echo
 dump=$($dc compose -f compose.prod.yaml exec -T kamailio kamcmd -s unix:/tmp/kamailio_ctl ul.dump)
 printf '%s\n' "$dump"
