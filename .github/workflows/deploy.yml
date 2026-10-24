@@ -1,0 +1,71 @@
+name: deploy
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - "phone/**"
+      - "web/**"
+      - "kamailio/**"
+      - "Dockerfile"
+      - "requirements.txt"
+      - ".dockerignore"
+      - "compose.prod.yaml"
+      - "deploy/**"
+      - ".github/workflows/deploy.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+
+env:
+  SSH_USER: admin
+  SSH_HOST: 158.160.176.80
+  SSH_PUBLIC_KEY: ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIP0FZFQnief11yYMAe0xeM81jvv+r/bcFNzExEmgAN/I cicd-deploy
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Deploy target
+        run: |
+          echo "ssh ${SSH_USER}@${SSH_HOST}"
+          echo "SSH_PUBLIC_KEY=${SSH_PUBLIC_KEY}"
+
+      - name: Configure SSH
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+        run: |
+          test -n "$SSH_PRIVATE_KEY" || {
+            echo "Добавьте секрет репозитория SSH_PRIVATE_KEY — закрытую пару для SSH_PUBLIC_KEY." >&2
+            exit 1
+          }
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H "$SSH_HOST" >> ~/.ssh/known_hosts
+
+      - name: Sync the stack
+        run: |
+          rsync -az --delete \
+            -e "ssh -i ~/.ssh/deploy_key -o IdentitiesOnly=yes" \
+            --exclude .git \
+            --exclude config \
+            --exclude web/node_modules \
+            --exclude web/dist \
+            --exclude '**/__pycache__' \
+            ./ "${SSH_USER}@${SSH_HOST}:sip-server/"
+
+      - name: Start containers and check the link
+        run: |
+          ssh -i ~/.ssh/deploy_key -o IdentitiesOnly=yes \
+            "${SSH_USER}@${SSH_HOST}" \
+            "cd sip-server && sh deploy/up.sh ${SSH_HOST}"

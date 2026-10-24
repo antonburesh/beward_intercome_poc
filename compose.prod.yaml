@@ -1,0 +1,54 @@
+# Linux host where the public address is on the machine itself.
+# Both processes share that network, so the phone registers to sip.ip:5060
+# and Kamailio reaches the phone at the same address, port 5062.
+
+services:
+  kamailio:
+    build: ./kamailio
+    container_name: sip
+    restart: unless-stopped
+    network_mode: host
+    entrypoint: ["/bin/sh", "/etc/kamailio/entrypoint.sh"]
+    env_file:
+      - ./config/env
+    healthcheck:
+      test: ["CMD", "kamcmd", "-s", "unix:/tmp/kamailio_ctl", "core.ping"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+      start_period: 3s
+    volumes:
+      - ./kamailio/kamailio.cfg:/etc/kamailio/kamailio.cfg:ro
+      - ./kamailio/entrypoint.sh:/etc/kamailio/entrypoint.sh:ro
+      - ./kamailio/dbtext/version:/etc/kamailio/dbtext/version:ro
+      - ./config/subscriber:/etc/kamailio/dbtext/subscriber:ro
+
+  phone:
+    build: .
+    container_name: phone
+    restart: unless-stopped
+    network_mode: host
+    depends_on:
+      kamailio:
+        condition: service_healthy
+    environment:
+      HTTP_HOST: 127.0.0.1
+      SIP_BIND: 0.0.0.0
+      SIP_PORT: "5062"
+      RTP_PORT: "40000"
+      VIDEO_PORT: "40002"
+      WEBRTC_PORT: "40010"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python3",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8090/api/state', timeout=2)",
+        ]
+      interval: 3s
+      timeout: 5s
+      retries: 20
+      start_period: 8s
+    volumes:
+      - ./config:/app/config
