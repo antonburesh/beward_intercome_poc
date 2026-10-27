@@ -120,6 +120,9 @@ class Softphone:
         self.sock.bind((self.bind_ip, int(os.environ.get("SIP_PORT") or 0)))
         _bound_ip, self.local_port = self.sock.getsockname()
         self.local_ip = config.SERVER_IP or _bound_ip
+        # On the server the public address is a NAT address. REGISTER goes to the
+        # Kamailio container by name. Contact and SDP stay on sip.ip.
+        self.register_host = os.environ.get("SIP_REGISTER_HOST") or config.SERVER_IP
         self.reg_call_id = secrets.token_hex(8)
         self.reg_tag = secrets.token_hex(4)
         self.reg_cseq = 0
@@ -182,7 +185,7 @@ class Softphone:
 
     def start_register(self):
         self.next_register = time.time() + config.EXPIRES / 2
-        self.send(self.build_register(), (config.SERVER_IP, config.SERVER_PORT))
+        self.send(self.build_register(), (self.register_host, config.SERVER_PORT))
 
     def reply(self, addr, headers, status, to_tag, extra, body=b""):
         lines = [f"SIP/2.0 {status}"]
@@ -505,7 +508,7 @@ class Softphone:
             auth = digest_authorization(
                 "REGISTER", config.SIP_USER, config.SIP_PASSWORD, challenge, f"sip:{config.SERVER_IP}"
             )
-            self.send(self.build_register(auth), (config.SERVER_IP, config.SERVER_PORT))
+            self.send(self.build_register(auth), (self.register_host, config.SERVER_PORT))
             return
         if start.startswith("SIP/2.0 200"):
             with self.lock:

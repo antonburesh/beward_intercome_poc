@@ -1,16 +1,22 @@
-# Linux host where the public address is on the machine itself.
-# Both processes share that network, so the phone registers to sip.ip:5060
-# and Kamailio reaches the phone at the same address, port 5062.
+# SIP and the phone join the mobile app network tango_net.
+# Published ports stay on the host so door panels reach the public address.
+# REGISTER goes to the container name sip. Contact and SDP still use sip.ip.
 
 services:
   kamailio:
     build: ./kamailio
     container_name: sip
     restart: unless-stopped
-    network_mode: host
     entrypoint: ["/bin/sh", "/etc/kamailio/entrypoint.sh"]
     env_file:
       - ./config/env
+    networks:
+      tango_net:
+        aliases:
+          - sip
+    ports:
+      - "5060:5060/udp"
+      - "5060:5060/tcp"
     healthcheck:
       test: ["CMD", "kamcmd", "-s", "unix:/tmp/kamailio_ctl", "core.ping"]
       interval: 2s
@@ -27,18 +33,28 @@ services:
     build: .
     container_name: phone
     restart: unless-stopped
-    network_mode: host
     depends_on:
       kamailio:
         condition: service_healthy
+    networks:
+      tango_net:
+        aliases:
+          - phone
     environment:
-      HTTP_HOST: 127.0.0.1
+      HTTP_HOST: 0.0.0.0
       HTTP_PORT: "8091"
       SIP_BIND: 0.0.0.0
       SIP_PORT: "5062"
+      SIP_REGISTER_HOST: sip
       RTP_PORT: "40000"
       VIDEO_PORT: "40002"
       WEBRTC_PORT: "40010"
+    ports:
+      - "127.0.0.1:8091:8091"
+      - "5062:5062/udp"
+      - "40000:40000/udp"
+      - "40002:40002/udp"
+      - "40010:40010/udp"
     healthcheck:
       test:
         [
@@ -53,3 +69,8 @@ services:
       start_period: 8s
     volumes:
       - ./config:/app/config
+
+networks:
+  tango_net:
+    external: true
+    name: tango_net
