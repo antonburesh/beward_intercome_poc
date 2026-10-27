@@ -3,19 +3,31 @@ set -eu
 cd "$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)"
 
 ip=158.160.176.80
-mkdir -p config
-[ -f config/env ] || cp config.example/env config/env
-[ -f config/settings.json ] || cp config.example/settings.json config/settings.json
-[ -f config/subscriber ] || cp config.example/subscriber config/subscriber
+dir=/etc/sip-server
 
-sed -i "s/^ADVERTISE_IP=.*/ADVERTISE_IP=${ip}/" config/env
-sed -i "0,/\"ip\":/s/\"ip\": \"[^\"]*\"/\"ip\": \"${ip}\"/" config/settings.json
+if [ "$(id -u)" -eq 0 ]; then
+  mkdir -p "$dir"
+else
+  sudo mkdir -p "$dir"
+  sudo chown "$(id -u):$(id -g)" "$dir"
+fi
+
+if [ ! -f "$dir/subscriber" ] && [ -f config/subscriber ]; then
+  cp -a config/. "$dir/"
+fi
+
+[ -f "$dir/env" ] || cp config.example/env "$dir/env"
+[ -f "$dir/settings.json" ] || cp config.example/settings.json "$dir/settings.json"
+[ -f "$dir/subscriber" ] || cp config.example/subscriber "$dir/subscriber"
+
+sed -i "s/^ADVERTISE_IP=.*/ADVERTISE_IP=${ip}/" "$dir/env"
+sed -i "0,/\"ip\":/s/\"ip\": \"[^\"]*\"/\"ip\": \"${ip}\"/" "$dir/settings.json"
 awk -F: -v ip="$ip" '
   BEGIN { OFS = ":" }
   NR == 1 { print; next }
   /^[0-9]+:/ { $3 = ip; print; next }
   { print }
-' config/subscriber > config/subscriber.tmp
-mv config/subscriber.tmp config/subscriber
+' "$dir/subscriber" > "$dir/subscriber.tmp"
+mv "$dir/subscriber.tmp" "$dir/subscriber"
 
 docker compose -f compose.prod.yaml up -d --build

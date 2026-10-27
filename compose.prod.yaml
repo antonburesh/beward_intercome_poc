@@ -5,7 +5,7 @@ services:
     restart: unless-stopped
     entrypoint: ["/bin/sh", "/etc/kamailio/entrypoint.sh"]
     env_file:
-      - ./config/env
+      - /etc/sip-server/env
     networks:
       tango_net:
         aliases: [sip]
@@ -16,7 +16,7 @@ services:
       - ./kamailio/kamailio.cfg:/etc/kamailio/kamailio.cfg:ro
       - ./kamailio/entrypoint.sh:/etc/kamailio/entrypoint.sh:ro
       - ./kamailio/dbtext/version:/etc/kamailio/dbtext/version:ro
-      - ./config/subscriber:/etc/kamailio/dbtext/subscriber:ro
+      - /etc/sip-server/subscriber:/etc/kamailio/dbtext/subscriber:ro
 
   phone:
     build: .
@@ -42,7 +42,7 @@ services:
       - "40002:40002/udp"
       - "40010:40010/udp"
     volumes:
-      - ./config:/app/config
+      - /etc/sip-server:/app/config
 
 networks:
   tango_net:
