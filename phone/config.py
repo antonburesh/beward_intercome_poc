@@ -20,6 +20,7 @@ SERVER_PORT = 5060
 SIP_USER = ""
 SIP_PASSWORD = ""
 PANELS = []
+NOTIFY_HOST = ""
 
 _ROOT = Path(__file__).resolve().parent.parent
 _PATH = _ROOT / "config" / "settings.json"
@@ -39,7 +40,7 @@ def _optional(obj, key, default):
 
 def load_settings(path=None):
     """Read settings once at startup into this module."""
-    global SERVER_IP, SERVER_PORT, SIP_USER, SIP_PASSWORD, PANELS
+    global SERVER_IP, SERVER_PORT, SIP_USER, SIP_PASSWORD, PANELS, NOTIFY_HOST
     file = Path(path) if path else _PATH
     if not file.is_file():
         raise SystemExit(
@@ -72,6 +73,7 @@ def load_settings(path=None):
             {
                 "name": str(_need(item, "name", where)),
                 "sip_user": user,
+                "intercom_id": str(_optional(item, "intercom_id", user)),
                 "ip": str(_need(item, "ip", where)),
                 "snapshot_path": str(_optional(item, "snapshot_path", DEFAULT_SNAPSHOT_PATH)),
                 "door_path": str(_optional(item, "door_path", DEFAULT_DOOR_PATH)),
@@ -79,11 +81,17 @@ def load_settings(path=None):
                 "password": str(_optional(item, "password", DEFAULT_PASSWORD)),
             }
         )
+    host = str(_optional(raw, "notify_host", "")).strip()
+    for prefix in ("https://", "http://"):
+        if host.startswith(prefix):
+            host = host[len(prefix):]
+    host = host.strip("/")
     SERVER_IP = server_ip
     SERVER_PORT = server_port
     SIP_USER = sip_user
     SIP_PASSWORD = sip_password
     PANELS = panels
+    NOTIFY_HOST = host
     return panels
 
 

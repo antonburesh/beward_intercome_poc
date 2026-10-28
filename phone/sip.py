@@ -10,6 +10,8 @@ import socket
 import struct
 import threading
 import time
+import urllib.request
+from urllib.parse import urlencode
 
 from phone import config
 from phone.codecs import alaw_to_linear, linear_to_alaw, linear_to_ulaw, rtp_packet, ulaw_to_linear
@@ -88,6 +90,32 @@ def apartment_of(headers):
     to_header = header_value(headers, "To")
     match = re.search(r"sip:([^@>;]+)", to_header)
     return match.group(1) if match else ""
+
+
+def notify_incoming(apartment, intercom_id, name):
+    """Tell the site about a new call. Does not delay the SIP answer."""
+    host = (config.NOTIFY_HOST or "").strip()
+    apartment = str(apartment or "").strip()
+    intercom_id = str(intercom_id or "").strip()
+    if not host or not apartment or not intercom_id:
+        return
+    query = urlencode(
+        {
+            "intercom_id": intercom_id,
+            "apartment": apartment,
+            "name": name or "",
+        }
+    )
+    url = f"https://{host}/api/intercom/call?{query}"
+
+    def send():
+        try:
+            with urllib.request.urlopen(url, timeout=3) as response:
+                print(f"сайт: {response.status} кв {apartment} {intercom_id}", flush=True)
+        except OSError as exc:
+            print(f"сайт не принял звонок: {exc}", flush=True)
+
+    threading.Thread(target=send, name="call-notify", daemon=True).start()
 
 
 def door_station_of(headers):
@@ -397,6 +425,11 @@ class Softphone:
             self.call = call
             self.touch()
         self.ringing_response(addr, headers, to_tag)
+        notify_incoming(
+            call["apartment"],
+            (panel or {}).get("intercom_id") or station,
+            call["panel"],
+        )
 
     def resend_current(self, addr):
         with self.lock:
