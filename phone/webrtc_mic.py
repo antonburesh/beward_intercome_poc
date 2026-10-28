@@ -9,8 +9,9 @@ The one HTTP exchange is the session description, not the audio.
 import asyncio
 import os
 import threading
+from concurrent.futures import TimeoutError as OfferTimeout
 
-from aiortc import RTCPeerConnection, RTCSessionDescription
+from aiortc import RTCConfiguration, RTCPeerConnection, RTCSessionDescription
 from aiortc.mediastreams import MediaStreamError
 from av.audio.resampler import AudioResampler
 
@@ -73,6 +74,7 @@ class WebRtcMic:
         self.phone = phone
         self.loop = None
         self.pc = None
+        self.offer_lock = threading.Lock()
 
     def start(self):
         self.loop = asyncio.new_event_loop()
@@ -81,11 +83,21 @@ class WebRtcMic:
             _pin_udp_port(self.loop, port)
         threading.Thread(target=self.loop.run_forever, name="webrtc", daemon=True).start()
 
-    def accept_offer_sync(self, sdp, timeout=5):
+    def accept_offer_sync(self, sdp, timeout=8):
         if self.loop is None:
             raise RuntimeError("WebRTC не запущен")
-        future = asyncio.run_coroutine_threadsafe(self.accept_offer(sdp), self.loop)
-        return future.result(timeout=timeout)
+        if not self.offer_lock.acquire(blocking=False):
+            raise RuntimeError("микрофон уже поднимается")
+        try:
+            future = asyncio.run_coroutine_threadsafe(self.accept_offer(sdp), self.loop)
+            try:
+                return future.result(timeout=timeout)
+            except OfferTimeout:
+                future.cancel()
+                asyncio.run_coroutine_threadsafe(self.close(), self.loop).result(timeout=2)
+                raise
+        finally:
+            self.offer_lock.release()
 
     async def close(self):
         pc = self.pc
@@ -95,7 +107,10 @@ class WebRtcMic:
 
     async def accept_offer(self, sdp):
         await self.close()
-        pc = RTCPeerConnection()
+        # No STUN. The public address is written into the answer below.
+        # stun.l.google.com from this host does not answer in time, and the
+        # browser then gives up before the answer arrives.
+        pc = RTCPeerConnection(RTCConfiguration(iceServers=[]))
         self.pc = pc
 
         @pc.on("track")
@@ -126,7 +141,7 @@ class WebRtcMic:
                 done.set()
 
         try:
-            await asyncio.wait_for(done.wait(), 2)
+            await asyncio.wait_for(done.wait(), 0.5)
         except asyncio.TimeoutError:
             pass
 

@@ -6,3 +6,5 @@ phone/settings.json
 kamailio/dbtext/subscriber
 phone/__pycache__/
 tests/__pycache__/
+web/node_modules/
+web/dist/

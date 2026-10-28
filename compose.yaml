@@ -36,3 +36,5 @@ services:
       - "40010:40010/udp"
     volumes:
       - ./config:/app/config
+      - ./phone:/app/phone:ro
+      - ./web/dist:/app/web/dist:ro

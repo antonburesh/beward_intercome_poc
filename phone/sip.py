@@ -131,6 +131,7 @@ class Softphone:
         self.expires_at = 0
         self.next_register = 0
         self.call = None
+        self.wake = threading.Event()
         self.log = []
         self.rtp_sock = None
         self.video_sock = None
@@ -243,6 +244,10 @@ class Softphone:
         with self.lock:
             self.rtp_close = True
             self.rtp_target = None
+
+    def touch(self):
+        """Wake the page. Call state changed; the panel is not involved."""
+        self.wake.set()
 
     def subscribe(self):
         listener = queue.Queue(maxsize=240)
@@ -390,6 +395,7 @@ class Softphone:
         }
         with self.lock:
             self.call = call
+            self.touch()
         self.ringing_response(addr, headers, to_tag)
 
     def resend_current(self, addr):
@@ -438,6 +444,7 @@ class Softphone:
             sdp = self.make_sdp(call.get("offer") or "")
             call["state"] = "talking"
             call["sdp"] = sdp
+            self.touch()
             media_ip, media_port = call["media"]
             if media_ip and media_ip != "0.0.0.0" and media_port:
                 self.rtp_target = (media_ip, media_port)
@@ -453,6 +460,7 @@ class Softphone:
             if not call or call["state"] != "ringing":
                 return
             self.call = None
+            self.touch()
             self.remember(call["apartment"], "отклонён")
             addr, headers, to_tag = call["addr"], call["headers"], call["to_tag"]
         self.reply(addr, headers, "486 Busy Here", to_tag, [])
@@ -463,6 +471,7 @@ class Softphone:
             if not call or call["state"] != "talking":
                 return
             self.call = None
+            self.touch()
             self.remember(call["apartment"], "завершён")
             cseq = header_value(call["headers"], "CSeq")
             number = cseq.split()[0] if cseq else "1"
@@ -490,6 +499,7 @@ class Softphone:
         with self.lock:
             call = self.call
             self.call = None
+            self.touch()
             self.mic.clear()
             self.mic_tail = b""
             self.mic_ready = False
@@ -515,10 +525,12 @@ class Softphone:
                 self.registered = True
                 self.error = ""
                 self.expires_at = time.time() + config.EXPIRES
+                self.touch()
             return
         with self.lock:
             self.registered = False
             self.error = start
+            self.touch()
 
     def handle_request(self, start, headers, body, addr):
         method = start.split(" ", 1)[0]

@@ -3,3 +3,5 @@ config
 tests
 **/__pycache__
 *.md
+web/node_modules
+web/dist

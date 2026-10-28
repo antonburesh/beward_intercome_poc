@@ -1,14 +1,59 @@
-"""Local HTTP routes: page, call control, microphone, snapshot, door, faces, and keys."""
+"""Local HTTP routes: the Vue page, call control, microphone, snapshot, door, faces, and keys."""
 
 import json
 import re
 import time
 from http.server import BaseHTTPRequestHandler
-from urllib.parse import parse_qs, urlparse
+from pathlib import Path
+from urllib.parse import parse_qs, unquote, urlparse
 
 from phone import config
 from phone.door import delete_all_faces, delete_face, fetch_face, fetch_snapshot, list_faces, open_door, upload_faces
-from phone.page import PAGE
+
+_DIST = Path(__file__).resolve().parent.parent / "web" / "dist"
+_TYPES = {
+    ".html": "text/html; charset=utf-8",
+    ".js": "text/javascript; charset=utf-8",
+    ".css": "text/css; charset=utf-8",
+    ".svg": "image/svg+xml",
+    ".json": "application/json; charset=utf-8",
+    ".map": "application/json",
+    ".woff": "font/woff",
+    ".woff2": "font/woff2",
+    ".png": "image/png",
+    ".ico": "image/x-icon",
+    ".webp": "image/webp",
+    ".txt": "text/plain; charset=utf-8",
+}
+
+
+def content_type(suffix):
+    return _TYPES.get(suffix.lower(), "application/octet-stream")
+
+
+def static_target(path, dist):
+    """A file inside dist, or index.html for an app route. None if it must 404."""
+    dist = Path(dist).resolve()
+    raw = unquote(urlparse(path).path)
+    if raw != "/" and raw.endswith("/"):
+        raw = raw[:-1] or "/"
+    if "\\" in raw:
+        return None
+    rel = "" if raw == "/" else raw.lstrip("/")
+    if any(part == ".." for part in Path(rel).parts):
+        return None
+    if rel:
+        candidate = (dist / rel).resolve()
+        try:
+            candidate.relative_to(dist)
+        except ValueError:
+            return None
+        if candidate.is_file():
+            return candidate
+        if Path(rel).suffix:
+            return None
+    index = dist / "index.html"
+    return index if index.is_file() else None
 
 PHONE = None
 WEBRTC = None
@@ -71,6 +116,56 @@ def panel_choices():
     ]
 
 
+def call_payload(phone):
+    """Call and registration only. Asking the panel here stalls the page."""
+    raw = phone.snapshot()
+    call = raw.get("call")
+    if call:
+        call = {
+            "id": call.get("id"),
+            "state": call.get("state"),
+            "apartment": call.get("apartment"),
+            "panel": call.get("panel") or None,
+            "panel_known": bool(call.get("panel_known")),
+            "from": call.get("from"),
+            "to": call.get("to"),
+            "params": call.get("params") or [],
+            "headers": call.get("headers") or [],
+            "rtp": call.get("rtp") or 0,
+        }
+    return {
+        "registered": bool(raw.get("registered")),
+        "error": raw.get("error") or "",
+        "user": raw.get("user") or "",
+        "server": raw.get("server") or "",
+        "call": call,
+    }
+
+
+def call_event_key(payload):
+    """What makes the page redraw. Packet counts are not a new call."""
+    call = payload.get("call") or {}
+    return (
+        bool(payload.get("registered")),
+        payload.get("error") or "",
+        call.get("id") or "",
+        call.get("state") or "",
+        call.get("apartment") or "",
+        bool(call.get("panel_known")),
+        call.get("panel") or "",
+    )
+
+
+def book_payload():
+    """Guests, keys, and panel names. These live on disk, not on the panel."""
+    return {
+        "guests": GUESTS.public() if GUESTS else [],
+        "keys": KEYS.public() if KEYS else [],
+        "panels": panel_choices(),
+        "panel_count": len(config.PANELS),
+    }
+
+
 def guest_target(payload):
     """A panel ip, or all panels when the request asks for every door."""
     if not isinstance(payload, dict) or payload.get("all") is True:
@@ -118,6 +213,30 @@ class Handler(BaseHTTPRequestHandler):
     def fail(self, field, message):
         self.send_json({"ok": False, field: message})
 
+    def stream_events(self):
+        """One connection. The server writes when the call changes."""
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream; charset=utf-8")
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("X-Accel-Buffering", "no")
+        self.end_headers()
+        last = None
+        try:
+            while True:
+                payload = call_payload(PHONE)
+                key = call_event_key(payload)
+                if key != last:
+                    text = json.dumps(payload, ensure_ascii=False)
+                    self.wfile.write(f"data: {text}\n\n".encode())
+                    last = key
+                else:
+                    self.wfile.write(b":\n\n")
+                self.wfile.flush()
+                PHONE.wake.wait(3)
+                PHONE.wake.clear()
+        except Exception:
+            return
+
     def do_GET(self):
         if self.path.startswith("/media"):
             self.send_response(200)
@@ -155,17 +274,29 @@ class Handler(BaseHTTPRequestHandler):
                 return
             self.send_bytes(200, "image/jpeg", image)
             return
-        if self.path.startswith("/api/state"):
-            data = PHONE.snapshot()
-            data["guests"] = GUESTS.public() if GUESTS else []
-            data["faces"] = face_rows()
-            data["keys"] = KEYS.public() if KEYS else []
-            data["panel_count"] = len(config.PANELS)
-            data["panels"] = panel_choices()
-            self.send_json(data)
+        if self.path.startswith("/api/events"):
+            self.stream_events()
             return
-        if self.path in ("/", "/index.html"):
-            self.send_bytes(200, "text/html; charset=utf-8", PAGE.encode())
+        if self.path.startswith("/api/state"):
+            self.send_json(call_payload(PHONE))
+            return
+        if self.path.startswith("/api/book"):
+            self.send_json(book_payload())
+            return
+        if self.path.startswith("/api/faces"):
+            self.send_json({"faces": face_rows()})
+            return
+        target = static_target(self.path, _DIST)
+        if target is not None:
+            cache = "no-store" if target.name == "index.html" else "public, max-age=31536000, immutable"
+            self.send_bytes(200, content_type(target.suffix), target.read_bytes(), cache)
+            return
+        if not (_DIST / "index.html").is_file() and not Path(urlparse(self.path).path).suffix:
+            self.send_bytes(
+                503,
+                "text/plain; charset=utf-8",
+                "Нет сборки страницы. В каталоге web выполните npm run build.\n".encode(),
+            )
             return
         self.send_response(404)
         self.end_headers()
