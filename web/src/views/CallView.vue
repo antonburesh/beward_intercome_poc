@@ -57,11 +57,11 @@ function shotFailed() {
 
 async function answer() {
   startMedia();
-  await fetch("/api/answer", { method: "POST" });
+  await fetch("/api-intercom/answer", { method: "POST" });
 }
 
 async function reject() {
-  const url = talking.value ? "/api/hangup" : "/api/reject";
+  const url = talking.value ? "/api-intercom/hangup" : "/api-intercom/reject";
   await fetch(url, { method: "POST" });
 }
 
@@ -69,7 +69,7 @@ async function openDoor() {
   doorBusy.value = true;
   doorNote.value = "открываю…";
   try {
-    const response = await fetch("/api/open", { method: "POST" });
+    const response = await fetch("/api-intercom/open", { method: "POST" });
     const data = await response.json();
     doorNote.value = data.door || "не удалось открыть";
   } catch {

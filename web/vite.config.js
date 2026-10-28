@@ -5,7 +5,7 @@ export default defineConfig({
   plugins: [vue()],
   server: {
     proxy: {
-      "/api": "http://127.0.0.1:8090",
+      "/api-intercom": "http://127.0.0.1:8090",
       "/media": "http://127.0.0.1:8090",
       "/snapshot": "http://127.0.0.1:8090",
       "/face": "http://127.0.0.1:8090",

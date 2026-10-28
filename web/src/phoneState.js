@@ -27,7 +27,7 @@ function applyCall(data) {
 export function startPhone() {
   if (started) return;
   started = true;
-  events = new EventSource("/api/events");
+  events = new EventSource("/api-intercom/events");
   events.onmessage = (message) => {
     try {
       applyCall(JSON.parse(message.data));
@@ -44,7 +44,7 @@ export function startPhone() {
 }
 
 export async function loadBook() {
-  const response = await fetch("/api/book", { cache: "no-store" });
+  const response = await fetch("/api-intercom/book", { cache: "no-store" });
   const data = await response.json();
   state.guests = data.guests || [];
   state.keys = data.keys || [];
@@ -53,7 +53,7 @@ export async function loadBook() {
 }
 
 export async function loadFaces() {
-  const response = await fetch("/api/faces", { cache: "no-store" });
+  const response = await fetch("/api-intercom/faces", { cache: "no-store" });
   const data = await response.json();
   state.faces = data.faces || [];
 }

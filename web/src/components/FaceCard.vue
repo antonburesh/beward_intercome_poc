@@ -33,7 +33,7 @@ async function upload() {
   body.append("photo", file, file.name || "face.jpg");
   message.value = "загружаю…";
   try {
-    const response = await fetch("/api/face", { method: "POST", body });
+    const response = await fetch("/api-intercom/face", { method: "POST", body });
     const data = await response.json();
     message.value = data.face || "не удалось загрузить";
     if (data.ok) {
@@ -51,7 +51,7 @@ async function remove(item) {
   if (!confirm(`Удалить фотографию: ${label}?`)) return;
   message.value = "удаляю фотографию…";
   try {
-    const data = await postJson("/api/face/delete", { panel: item.panel, id: item.id });
+    const data = await postJson("/api-intercom/face/delete", { panel: item.panel, id: item.id });
     message.value = data.face || "не удалось удалить фото";
     if (data.ok) loadFaces();
   } catch {
@@ -63,7 +63,7 @@ async function removeAll() {
   if (!confirm("Удалить все фотографии на всех домофонах? Вход по лицу перестанет работать, пока фото не добавят снова.")) return;
   message.value = "удаляю фотографии…";
   try {
-    const data = await postJson("/api/face/delete", { all: true });
+    const data = await postJson("/api-intercom/face/delete", { all: true });
     message.value = data.face || "не удалось удалить фото";
     if (data.ok) loadFaces();
   } catch {

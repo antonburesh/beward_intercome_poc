@@ -58,7 +58,7 @@ function startMic() {
     const offer = await pc.createOffer();
     await pc.setLocalDescription(offer);
     await waitIce(pc);
-    const response = await fetch("/api/webrtc", {
+    const response = await fetch("/api-intercom/webrtc", {
       method: "POST",
       headers: { "Content-Type": "application/sdp" },
       body: pc.localDescription.sdp,

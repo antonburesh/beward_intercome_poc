@@ -274,16 +274,16 @@ class Handler(BaseHTTPRequestHandler):
                 return
             self.send_bytes(200, "image/jpeg", image)
             return
-        if self.path.startswith("/api/events"):
+        if self.path.startswith("/api-intercom/events"):
             self.stream_events()
             return
-        if self.path.startswith("/api/state"):
+        if self.path.startswith("/api-intercom/state"):
             self.send_json(call_payload(PHONE))
             return
-        if self.path.startswith("/api/book"):
+        if self.path.startswith("/api-intercom/book"):
             self.send_json(book_payload())
             return
-        if self.path.startswith("/api/faces"):
+        if self.path.startswith("/api-intercom/faces"):
             self.send_json({"faces": face_rows()})
             return
         target = static_target(self.path, _DIST)
@@ -302,7 +302,7 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
 
     def do_POST(self):
-        if self.path == "/api/webrtc":
+        if self.path == "/api-intercom/webrtc":
             length = int(self.headers.get("Content-Length", "0") or "0")
             if length <= 0 or length > 200000 or WEBRTC is None:
                 self.send_response(400)
@@ -318,7 +318,7 @@ class Handler(BaseHTTPRequestHandler):
                 return
             self.send_bytes(200, "application/sdp", answer.encode())
             return
-        if self.path == "/api/guest":
+        if self.path == "/api-intercom/guest":
             payload = read_json(self, 4000)
             if GUESTS is None or payload is None:
                 self.fail("guest", "не удалось записать код")
@@ -332,14 +332,14 @@ class Handler(BaseHTTPRequestHandler):
                 )
             self.send_json({"ok": ok, "guest": message})
             return
-        if self.path == "/api/guest/clear":
+        if self.path == "/api-intercom/guest/clear":
             if GUESTS is None:
                 self.fail("guest", "не удалось снять коды")
                 return
             ok, message = GUESTS.revoke_all(list(config.PANELS))
             self.send_json({"ok": ok, "guest": message})
             return
-        if self.path == "/api/face/delete":
+        if self.path == "/api-intercom/face/delete":
             payload = read_json(self, 4000)
             if payload is None:
                 self.fail("face", "не удалось удалить фото")
@@ -352,14 +352,14 @@ class Handler(BaseHTTPRequestHandler):
             drop_face_cache()
             self.send_json({"ok": ok, "face": message})
             return
-        if self.path == "/api/key/clear":
+        if self.path == "/api-intercom/key/clear":
             if KEYS is None:
                 self.fail("key", "не удалось удалить ключи")
                 return
             ok, message = KEYS.remove_all(list(config.PANELS))
             self.send_json({"ok": ok, "key": message})
             return
-        if self.path == "/api/key":
+        if self.path == "/api-intercom/key":
             payload = read_json(self, 4000)
             if KEYS is None or payload is None:
                 self.fail("key", "не удалось записать ключ")
@@ -371,7 +371,7 @@ class Handler(BaseHTTPRequestHandler):
                 ok, message = KEYS.add(panels, payload.get("apartment"), payload.get("key"))
             self.send_json({"ok": ok, "key": message})
             return
-        if self.path == "/api/face":
+        if self.path == "/api-intercom/face":
             length = int(self.headers.get("Content-Length", "0") or "0")
             if length <= 0 or length > 12 * 1024 * 1024:
                 self.send_json({"ok": False, "face": "нужны квартира и фото"})
@@ -384,7 +384,7 @@ class Handler(BaseHTTPRequestHandler):
             drop_face_cache()
             self.send_json({"ok": ok, "face": message})
             return
-        if self.path == "/api/open":
+        if self.path == "/api-intercom/open":
             panel, message = PHONE.door_target()
             if not panel:
                 self.send_json({"ok": False, "door": message})
@@ -392,11 +392,11 @@ class Handler(BaseHTTPRequestHandler):
             ok, message = open_door(panel)
             self.send_json({"ok": ok, "door": message})
             return
-        if self.path == "/api/answer":
+        if self.path == "/api-intercom/answer":
             PHONE.answer()
-        elif self.path == "/api/reject":
+        elif self.path == "/api-intercom/reject":
             PHONE.reject()
-        elif self.path == "/api/hangup":
+        elif self.path == "/api-intercom/hangup":
             PHONE.hangup()
         else:
             self.send_response(404)

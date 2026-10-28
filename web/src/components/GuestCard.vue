@@ -27,7 +27,7 @@ async function issue() {
   else payload.panel = where.value;
   message.value = "записываю код…";
   try {
-    const data = await postJson("/api/guest", payload);
+    const data = await postJson("/api-intercom/guest", payload);
     message.value = data.guest || "не удалось записать код";
     if (data.ok) {
       apartment.value = "";
@@ -40,7 +40,7 @@ async function issue() {
 
 async function revoke(number) {
   try {
-    const data = await postJson("/api/guest", { apartment: number, remove: true });
+    const data = await postJson("/api-intercom/guest", { apartment: number, remove: true });
     message.value = data.guest || "";
     if (data.ok) loadBook();
   } catch {
@@ -52,7 +52,7 @@ async function revokeAll() {
   if (!confirm("Удалить все временные коды? Гости больше не смогут войти по ним.")) return;
   message.value = "снимаю коды…";
   try {
-    const data = await postJson("/api/guest/clear");
+    const data = await postJson("/api-intercom/guest/clear");
     message.value = data.guest || "не удалось снять коды";
     if (data.ok) loadBook();
   } catch {
