@@ -1,7 +1,6 @@
 #!/bin/sh
 set -eu
 cd "$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)"
-
 ip=158.160.176.80
 dir=/etc/sip-server
 
