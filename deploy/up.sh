@@ -29,4 +29,8 @@ awk -F: -v ip="$ip" '
 ' "$dir/subscriber" > "$dir/subscriber.tmp"
 mv "$dir/subscriber.tmp" "$dir/subscriber"
 
-docker compose -f compose.prod.yaml up -d --build
+# The server's saved ghcr.io login cannot pull the public Kamailio image.
+nocreds=$(mktemp -d)
+printf '%s\n' '{"auths":{}}' > "$nocreds/config.json"
+DOCKER_CONFIG=$nocreds docker compose -f compose.prod.yaml up -d --build
+rm -rf "$nocreds"
