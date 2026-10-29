@@ -166,6 +166,7 @@ class Softphone:
         self.rtp_target = None
         self.rtp_close = False
         self.listeners = []
+        self.downlink = None
         self.fu = None
         self.access = []
         self.sps = None
@@ -304,6 +305,12 @@ class Softphone:
                     listener.put_nowait(frame)
                 except queue.Full:
                     continue
+        sink = self.downlink
+        if sink is not None and kind in (1, 2):
+            try:
+                sink(kind, payload)
+            except Exception:
+                return
 
     def emit_audio(self, payload_type, payload):
         decode = ulaw_to_linear if payload_type == 0 else alaw_to_linear
