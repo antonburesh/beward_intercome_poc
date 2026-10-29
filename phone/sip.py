@@ -496,6 +496,11 @@ class Softphone:
 
     def reject(self):
         with self.lock:
+            state = (self.call or {}).get("state")
+        if state == "talking":
+            self.hangup()
+            return
+        with self.lock:
             call = self.call
             if not call or call["state"] != "ringing":
                 return
