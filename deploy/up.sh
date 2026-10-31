@@ -21,6 +21,17 @@ fi
 
 sed -i "s/^ADVERTISE_IP=.*/ADVERTISE_IP=${ip}/" "$dir/env"
 sed -i "0,/\"ip\":/s/\"ip\": \"[^\"]*\"/\"ip\": \"${ip}\"/" "$dir/settings.json"
+# Softphone registers to Kamailio on the non-default SIP port.
+python3 - "$dir/settings.json" <<'PY'
+import json, sys
+path = sys.argv[1]
+data = json.loads(open(path, encoding="utf-8").read())
+sip = data.setdefault("sip", {})
+if not isinstance(sip, dict):
+    raise SystemExit(f"bad sip in {path}")
+sip["port"] = 15060
+open(path, "w", encoding="utf-8").write(json.dumps(data, ensure_ascii=False, indent=2) + "\n")
+PY
 awk -F: -v ip="$ip" '
   BEGIN { OFS = ":" }
   NR == 1 { print; next }

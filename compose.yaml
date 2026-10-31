@@ -7,8 +7,8 @@ services:
     env_file:
       - ./config/env
     ports:
-    - "5060:5060/udp"
-    - "5060:5060/tcp"
+    - "15060:15060/udp"
+    - "15060:15060/tcp"
     volumes:
       - ./kamailio/kamailio.cfg:/etc/kamailio/kamailio.cfg:ro
       - ./kamailio/entrypoint.sh:/etc/kamailio/entrypoint.sh:ro

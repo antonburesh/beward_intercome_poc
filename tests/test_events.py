@@ -15,7 +15,7 @@ class _Phone:
             "registered": self.registered,
             "error": "",
             "user": "101",
-            "server": "192.168.1.10:5060",
+            "server": "192.168.1.10:15060",
             "call": self.call,
             "log": [],
         }
