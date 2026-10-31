@@ -32,12 +32,13 @@ services:
       SIP_BIND: 0.0.0.0
       SIP_PORT: "5062"
       SIP_REGISTER_HOST: sip
+      # Reachable only on tango_net. Do not publish 5062: scanners INVITE it.
+      SIP_CONTACT_HOST: phone
       RTP_PORT: "40000"
       VIDEO_PORT: "40002"
       WEBRTC_PORT: "40010"
     ports:
       - "127.0.0.1:8091:8091"
-      - "5062:5062/udp"
       - "40000:40000/udp"
       - "40002:40002/udp"
       - "40010:40010/udp"

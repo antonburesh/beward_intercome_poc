@@ -149,7 +149,10 @@ class Softphone:
         _bound_ip, self.local_port = self.sock.getsockname()
         self.local_ip = config.SERVER_IP or _bound_ip
         # On the server the public address is a NAT address. REGISTER goes to the
-        # Kamailio container by name. Contact and SDP stay on sip.ip.
+        # Kamailio container by name. SDP stays on sip.ip so the panel can send RTP.
+        # Contact may be the docker hostname so Kamailio does not hairpin through
+        # a public 5062 that scanners also reach.
+        self.contact_host = os.environ.get("SIP_CONTACT_HOST") or self.local_ip
         self.register_host = os.environ.get("SIP_REGISTER_HOST") or config.SERVER_IP
         self.reg_call_id = secrets.token_hex(8)
         self.reg_tag = secrets.token_hex(4)
@@ -189,7 +192,7 @@ class Softphone:
         self.running = True
 
     def contact(self):
-        return f"<sip:{config.SIP_USER}@{self.local_ip}:{self.local_port}>"
+        return f"<sip:{config.SIP_USER}@{self.contact_host}:{self.local_port}>"
 
     def send(self, payload, addr):
         self.sock.sendto(payload if isinstance(payload, bytes) else payload.encode(), addr)
@@ -397,6 +400,12 @@ class Softphone:
             current = self.call
         if current and current["id"] == call_id:
             self.resend_current(addr)
+            return
+        # Kamailio stamps door calls with X-Apartment. A bare INVITE on the
+        # softphone port is a scanner, not the panel.
+        if not header_value(headers, "X-Apartment"):
+            print(f"отклонён чужой INVITE src={addr[0]}:{addr[1]} from={header_value(headers, 'From')}", flush=True)
+            self.reply(addr, headers, "403 Forbidden", secrets.token_hex(4), [])
             return
         if current and current["state"] in ("ringing", "talking"):
             self.reply(addr, headers, "486 Busy Here", secrets.token_hex(4), [])
