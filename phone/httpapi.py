@@ -264,7 +264,18 @@ class Handler(BaseHTTPRequestHandler):
             self.send_bytes(200, "image/jpeg", image, "private, no-store")
             return
         if self.path.startswith("/snapshot"):
-            panel = PHONE.active_panel()
+            params = parse_qs(urlparse(self.path).query)
+            wanted = (params.get("panel") or [""])[0].strip()
+            if wanted:
+                panel = next(
+                    (
+                        item for item in config.PANELS
+                        if item.get("ip") == wanted or item.get("name") == wanted
+                    ),
+                    None,
+                )
+            else:
+                panel = PHONE.active_panel()
             image = fetch_snapshot(panel) if panel else None
             if not panel:
                 self.send_bytes(404, "", b"")
