@@ -396,7 +396,19 @@ class Handler(BaseHTTPRequestHandler):
             self.send_json({"ok": ok, "face": message})
             return
         if self.path == "/api-intercom/open":
-            panel, message = PHONE.door_target()
+            payload = read_json(self, 4000) or {}
+            wanted = str(payload.get("panel") or "").strip()
+            if wanted:
+                panel = next(
+                    (
+                        item for item in config.PANELS
+                        if item.get("ip") == wanted or item.get("name") == wanted
+                    ),
+                    None,
+                )
+                message = "" if panel else "панель неизвестна"
+            else:
+                panel, message = PHONE.door_target()
             if not panel:
                 self.send_json({"ok": False, "door": message})
                 return
