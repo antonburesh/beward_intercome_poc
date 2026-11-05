@@ -8,7 +8,15 @@ from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlparse
 
 from phone import config
-from phone.door import delete_all_faces, delete_face, fetch_face, fetch_snapshot, list_faces, open_door, upload_faces
+from phone.door import (
+    cached_snapshot,
+    delete_all_faces,
+    delete_face,
+    fetch_face,
+    list_faces,
+    open_door,
+    upload_faces,
+)
 
 _DIST = Path(__file__).resolve().parent.parent / "web" / "dist"
 _TYPES = {
@@ -276,7 +284,7 @@ class Handler(BaseHTTPRequestHandler):
                 )
             else:
                 panel = PHONE.active_panel()
-            image = fetch_snapshot(panel) if panel else None
+            image = cached_snapshot(panel) if panel else None
             if not panel:
                 self.send_bytes(404, "", b"")
                 return

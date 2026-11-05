@@ -10,8 +10,11 @@ import re
 import secrets
 import subprocess
 import tempfile
+import threading
+import time
 import urllib.error
 import urllib.request
+from io import BytesIO
 from pathlib import Path
 from urllib.parse import urlencode, urlsplit
 
@@ -65,6 +68,90 @@ def fetch_snapshot(panel):
     if status == 200 and data.startswith(b"\xff\xd8"):
         return data
     return None
+
+
+_SHOTS = {}
+_SHOT_LOCK = threading.Lock()
+_WARM_STARTED = False
+
+
+def shrink_jpeg(data, max_edge=960):
+    """A smaller JPEG reaches the phone sooner. The original stays if scaling fails."""
+    if not data or len(data) < 4096:
+        return data
+    try:
+        import av
+
+        source = av.open(BytesIO(data))
+        frame = next(source.decode(video=0))
+        source.close()
+        width, height = frame.width, frame.height
+        edge = max(width, height)
+        if edge <= max_edge and len(data) <= 160_000:
+            return data
+        scale = max_edge / float(edge)
+        target_w = max(2, int(width * scale) // 2 * 2)
+        target_h = max(2, int(height * scale) // 2 * 2)
+        frame = frame.reformat(width=target_w, height=target_h, format="yuvj420p")
+        buf = BytesIO()
+        output = av.open(buf, mode="w", format="mjpeg")
+        stream = output.add_stream("mjpeg")
+        stream.width = target_w
+        stream.height = target_h
+        stream.pix_fmt = "yuvj420p"
+        for packet in stream.encode(frame):
+            output.mux(packet)
+        for packet in stream.encode():
+            output.mux(packet)
+        output.close()
+        result = buf.getvalue()
+        if result.startswith(b"\xff\xd8") and len(result) > 500:
+            return result
+    except Exception:
+        return data
+    return data
+
+
+def cached_snapshot(panel, max_age=3):
+    """Serve the last picture immediately. A cold cache still asks the panel once."""
+    if not panel:
+        return None
+    key = panel.get("ip") or panel.get("name") or ""
+    now = time.monotonic()
+    with _SHOT_LOCK:
+        hit = _SHOTS.get(key)
+    if hit and now - hit[0] <= max_age:
+        return hit[1]
+    image = shrink_jpeg(fetch_snapshot(panel))
+    if image:
+        with _SHOT_LOCK:
+            _SHOTS[key] = (time.monotonic(), image)
+        return image
+    return hit[1] if hit else None
+
+
+def _warm_snapshots():
+    from phone import config
+
+    while True:
+        for panel in list(config.PANELS or []):
+            try:
+                image = shrink_jpeg(fetch_snapshot(panel))
+            except Exception:
+                image = None
+            if image:
+                key = panel.get("ip") or panel.get("name") or ""
+                with _SHOT_LOCK:
+                    _SHOTS[key] = (time.monotonic(), image)
+        time.sleep(2.5)
+
+
+def start_snapshot_warmer():
+    global _WARM_STARTED
+    if _WARM_STARTED:
+        return
+    _WARM_STARTED = True
+    threading.Thread(target=_warm_snapshots, name="snapshots", daemon=True).start()
 
 
 def open_door(panel):

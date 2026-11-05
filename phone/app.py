@@ -27,7 +27,7 @@ import time
 from http.server import ThreadingHTTPServer
 
 from phone import config, httpapi
-from phone.door import apartment_record, write_apartment
+from phone.door import apartment_record, start_snapshot_warmer, write_apartment
 from phone.guest import GuestCodes
 from phone.keys import KeyBook
 from phone.sip import Softphone
@@ -46,6 +46,7 @@ def watch_guest_codes():
 
 def main():
     config.load_settings()
+    start_snapshot_warmer()
     httpapi.PHONE = Softphone()
     httpapi.WEBRTC = WebRtcMic(httpapi.PHONE)
     httpapi.WEBRTC.start()

@@ -124,6 +124,7 @@ class PanelVideo(MediaStreamTrack):
         self.decoded = []
         self.codec = None
         self.pts = 0
+        self.seen = False
 
     def push(self, payload):
         if self.queue.full():
@@ -188,15 +189,25 @@ class PanelVideo(MediaStreamTrack):
         return frame
 
     async def recv(self):
-        try:
-            payload = await asyncio.wait_for(self.queue.get(), 0.2)
-        except asyncio.TimeoutError:
-            payload = None
-        if payload:
-            self._decode(payload)
+        # Hold the first packet until a real frame exists, so the phone
+        # keeps the snapshot instead of a black picture.
+        limit = 2.5 if not self.seen else 0.25
+        deadline = time.monotonic() + limit
+        while not self.decoded and time.monotonic() < deadline:
+            timeout = deadline - time.monotonic()
+            if timeout <= 0:
+                break
+            try:
+                payload = await asyncio.wait_for(self.queue.get(), timeout)
+            except asyncio.TimeoutError:
+                break
+            if payload:
+                self._decode(payload)
         if self.decoded:
+            self.seen = True
             return self.decoded.pop(0)
-        await asyncio.sleep(0.03)
+        if not self.seen:
+            await asyncio.sleep(0.04)
         return self._blank()
 
 
